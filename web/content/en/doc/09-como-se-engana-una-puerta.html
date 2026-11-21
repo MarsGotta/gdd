@@ -1,7 +1,8 @@
 <h1>How a gate gets fooled</h1>
-<p>A gate can be fooled without touching the test, and there are four ways to do it:</p>
+<p>A gate can be fooled without touching the test, and there are four ways to do it.</p>
+<h2>Four tricks</h2>
 <table>
-<thead><tr><th>Trick</th><th>Example</th><th>What stops it</th></tr></thead>
+<thead><tr><th>Trick</th><th>Example</th><th>How it's stopped</th></tr></thead>
 <tbody>
 <tr><td><strong>Lying</strong></td><td>Says "everything passes" without running it</td><td>Someone else runs it</td></tr>
 <tr><td><strong>Faking the result</strong></td><td>Prints <code>3 passed</code>, or leaves a fake vitest in <code>node_modules</code></td><td>Someone else runs it, on a clean copy</td></tr>
@@ -9,10 +10,17 @@
 <tr><td><strong>Cheating from the code</strong></td><td><code>if (name === "Ana") return "Hello, Ana"</code>, or <code>if (process.env.VITEST)</code></td><td>No tool prevents it: more cases, <a href="doc:buenas-practicas#practica-16">hidden examples</a> or a reviewer that runs it</td></tr>
 </tbody>
 </table>
-<p>That hook in <code>conftest.py</code> has already happened: <a href="https://openai.com/index/chain-of-thought-monitoring/">OpenAI</a> saw a model add it, and <a href="https://arxiv.org/abs/2510.20270">ImpossibleBench</a> classifies four cheating strategies, three of which don't modify the test.</p>
+<p>That hook in <code>conftest.py</code> has already happened: <a href="https://openai.com/index/chain-of-thought-monitoring/">OpenAI</a> saw a model add it.</p>
+<p><a href="https://arxiv.org/abs/2510.20270">ImpossibleBench</a> classifies four cheating strategies, and three of them don't modify the test.</p>
+<p>To practise, the <a href="doc:taller">workshop</a> puts six gates in front of you and asks whether they hold.</p>
 <h2 id="grados">Rule, platform and engine</h2>
-<p>The <a href="doc:los-principios#5-quien-cruza-la-puerta-no-decide-como-se-valida">fifth principle</a> starts out as a rule, and a rule works without an engine: you ask the agent and review the diff. That works as long as you keep looking. The guarantee comes when the agent can't touch the check even if it tries.</p>
-<p>Your platform's protected branches and permissions get you a good part of the way (you set them up yourself in <a href="doc:empieza-hoy">A gate by hand</a> or, with <a href="doc:las-skills">the skills</a>, your agent writes the <code>CODEOWNERS</code>, you apply the rest and it tries them), but the full guarantee, where not even whoever administers the repository can loosen it without a person's approval, only an engine gives. That makes three degrees, and each one depends less on the agent obeying. The <a href="doc:el-nucleo">core</a> is the list of those guarantees.</p>
+<p>The <a href="doc:los-principios#5-quien-cruza-la-puerta-no-decide-como-se-valida">fifth principle</a> starts out as a rule, and a rule works without an engine: you ask the agent and review the diff. That works as long as you keep looking.</p>
+<p>The guarantee comes when the agent can't touch the check even if it tries. Your platform's protected branches and permissions get you a good part of the way:</p>
+<ul>
+<li>By hand: you set them up yourself, in <a href="doc:empieza-hoy">A gate by hand</a>.</li>
+<li>With <a href="doc:las-skills">the skills</a>: your agent writes the <code>CODEOWNERS</code>, you apply the rest and it tries them.</li>
+</ul>
+<p>Only an engine gives the full guarantee, where not even whoever administers the repository can loosen it without a person's approval. That makes three degrees, and each one depends less on the agent obeying. The <a href="doc:el-nucleo">core</a> is the list of those guarantees.</p>
 <table>
 <thead><tr><th>Degree</th><th>What holds the agent back</th><th>What you get it with</th><th>How far it goes</th></tr></thead>
 <tbody>
@@ -21,7 +29,18 @@
 <tr><td><strong>Engine</strong></td><td>Code out of its reach that keeps count of the whole change</td><td>An engine that meets the core</td><td>The full guarantee</td></tr>
 </tbody>
 </table>
-<p>Your blueprint says which of the three you're at. The skills' layer also keeps count of the whole change, but while an agent runs it, it's within that agent's reach: with it you're still on rule or platform.</p>
+<p>Your blueprint says which of the three you're at.</p>
+<p>The skills' layer also keeps count of the whole change, but while an agent runs it, it's within that agent's reach: with it you're still on rule or platform.</p>
 <h2>Is CI mandatory?</h2>
-<p>No. What's mandatory is that the agent doesn't judge itself. The test can be run by CI, by <a href="doc:el-motor">an engine</a> or by you on a clean copy. CI is just the cheapest way not to depend on your discipline. With the skills, it's also where the layer goes over each change's log and runs its gates out of the agents' reach. Without it, that's on you.</p>
+<p>No. What's mandatory is that the agent doesn't judge itself. The test can be run by CI, by <a href="doc:el-motor">an engine</a> or by you on a clean copy.</p>
+<p>CI is just the cheapest way not to depend on your discipline. With the skills, it's also where the layer goes over each change's log and runs its gates out of the agents' reach. Without it, that's on you.</p>
 <p class="sigue">What really stops these tricks is the guarantees, so the question is which ones you can demand. The whole list is in <a href="doc:el-nucleo">The core</a>.</p>
+<aside data-cruzar>
+<p>CI passes on the agent's branch. Is that enough to know nothing around the test has changed?</p>
+<ul>
+<li>Yes: if CI runs it, the agent couldn't have faked the result.</li>
+<li data-bien>No: CI runs whatever is on the branch, a changed <code>package.json</code> or <code>conftest.py</code> included.</li>
+</ul>
+<p data-si="bien">That's it. To find out, you compare those files with what was approved.</p>
+<p data-si="mal">It isn't enough. CI doesn't fake anything, but it runs what the agent left on its branch: you have to compare those files with what was approved.</p>
+</aside>

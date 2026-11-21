@@ -1,40 +1,71 @@
 <h1>Las piezas y los roles</h1>
 <h2 id="las-piezas">Las piezas</h2>
 <p>En la tienda viste varias veces la misma escena: el agente decía "hecho" y un test decía que no. Detrás de esa escena están casi todas las piezas del método.</p>
-<p>En la pasarela, el agente tenía que demostrar que la compra hacía lo que dicen los escenarios, también si alguien pulsa dos veces. Eso es una <strong>puerta</strong>. Y lo que lo demostraba eran los tests que había creado otro modelo, como el que espera un solo cobro de 40 € después de dos pulsaciones. Esos tests son las <strong>comprobaciones</strong>, y la puerta solo se abre si pasan todas. Al agente nadie le pregunta si ha terminado.</p>
-<p>El texto de un botón es de <strong>riesgo</strong> verde, porque sale poco mal si falla. La pasarela era roja, y lo habría sido aunque fueran tres líneas. Ese riesgo lo defines tú al decidir qué es delicado, y se mide con lo que el cambio toca de verdad, no con lo que el agente cuente de él. Lo que no se puede deshacer nunca es verde.</p>
-<p>Todo eso, qué es delicado, qué puertas hacen falta, con sus comprobaciones, y qué pide cada nivel, queda escrito en el <strong>plano</strong>. En la tienda se quedó corto con los pedidos, y por eso hubo que cambiarlo. El plano y las comprobaciones son justo lo que el agente no puede tocar.</p>
+<dl>
+<dt>Puerta</dt>
+<dd>Lo que el agente tiene que demostrar para seguir. En la pasarela, que la compra hacía lo que dicen los escenarios, también si alguien pulsa dos veces. Solo se abre si pasan todas sus comprobaciones.</dd>
+<dt>Comprobación</dt>
+<dd>Lo que demuestra que la puerta se cumple, como los tests que había creado otro modelo, entre ellos el que espera un solo cobro de 40 € después de dos pulsaciones. Al agente nadie le pregunta si ha terminado.</dd>
+<dt>Riesgo</dt>
+<dd>El nivel de cada cambio: verde, amarillo o rojo. El texto de un botón es verde, porque sale poco mal si falla, y la pasarela era roja, y lo habría sido aunque fueran tres líneas. Lo defines tú al decidir qué es delicado, y se mide con lo que el cambio toca de verdad, no con lo que el agente cuente de él. Lo que no se puede deshacer nunca es verde.</dd>
+<dt>Plano</dt>
+<dd>Donde queda escrito qué es delicado, qué puertas hacen falta, con sus comprobaciones, y qué pide cada nivel. En la tienda se quedó corto con los pedidos, y por eso hubo que cambiarlo. Lo redacta tu agente y solo cambia con tu sí, o el de tu equipo: quien construye no lo toca, igual que no toca las comprobaciones.</dd>
+<dt>Contexto</dt>
+<dd>Lo que el agente necesita para cruzar cada puerta. A cada puerta, lo suyo.</dd>
+<dt>Constitución</dt>
+<dd>La pieza principal del contexto que el agente lleva siempre. Empieza con cinco líneas sobre el producto, como para quién es y cómo sabrás que le sirve, y sigue con su stack, sus órdenes y lo que no puede pasar nunca en él.</dd>
+<dt>Vigilante</dt>
+<dd>Otro agente, en su propia sesión y con el contexto limpio. Lee el cambio contra lo que debe pasar y, donde el riesgo lo pide, lo ejecuta.</dd>
+<dt>Entorno acotado</dt>
+<dd>Donde trabaja el agente: sin acceso a producción y con las credenciales justas. Lo irreversible lo confirma una persona.</dd>
+</dl>
 <div data-anatomia></div>
 <h3>Quién comprueba</h3>
 <p>Los tests de la pasarela son comprobaciones de máquina, y de ellas hay dos clases. Las <strong>a medida</strong> están en el plano como las demás, pero sus casos se escriben en cada cambio y marcan qué tiene que pasar, como el de las dos pulsaciones. Las <strong>de serie</strong> valen para todo el proyecto y vigilan calidad, seguridad y proporción, con un linter o un tope de tamaño por cambio.</p>
 <p>Y ojo, que una comprobación es más que el test: también cuenta todo lo que decide su resultado, como los scripts, la configuración, las referencias o las excepciones de un escáner.</p>
-<p>Además de la máquina puedes poner un vigilante (otro agente) o una persona que apruebe, y en lo más delicado una segunda persona, si tu equipo lo activa. Ni el vigilante ni las personas te dejan saltarte el mínimo que pide el riesgo. Tampoco se confunden entre sí: lo que un vigilante da por bueno nunca vale como la aprobación de una persona. El plano lo apruebas siempre tú, o tu equipo, y dónde más hace falta una aprobación, también la de lo que debe pasar, lo dice el plano. Y cuando digo solo tu equipo, me refiero a quien usa el método: tú, si trabajas por tu cuenta.</p>
+<p>Además de la máquina puedes poner un vigilante (otro agente) o una persona que apruebe, y en lo más delicado una segunda persona, si tu equipo lo activa. Ni el vigilante ni las personas te dejan saltarte el mínimo que pide el riesgo. Tampoco se confunden entre sí: lo que un vigilante da por bueno nunca vale como la aprobación de una persona.</p>
+<p>El plano lo apruebas siempre tú, o tu equipo, y dónde más hace falta una aprobación, también la de lo que debe pasar, lo dice el plano. Y cuando digo solo tu equipo, me refiero a quien usa el método: tú, si trabajas por tu cuenta.</p>
 <table>
-<thead><tr><th>Comprobación</th><th>Cómo se comprueba que sirve</th></tr></thead>
+<thead><tr><th>Comprobación</th><th>Por ejemplo</th><th>Cómo se comprueba que sirve</th></tr></thead>
 <tbody>
-<tr><td><strong>De máquina</strong> (tests, linter, Sonar)</td><td>Se le da un caso malo y tiene que rechazarlo.</td></tr>
-<tr><td><strong>De vigilante</strong> (otro agente que revisa el cambio y, donde el riesgo lo pide, lo ejecuta)</td><td>Tiene que cazar lo que ya se coló o fallos puestos a propósito.</td></tr>
-<tr><td><strong>De persona</strong> (tu aprobación)</td><td>Se mide cuánto tarda, para detectar aprobaciones sin leer.</td></tr>
+<tr><td><strong>De máquina</strong></td><td>Tests, linter, Sonar</td><td>Se le da un caso malo y tiene que rechazarlo.</td></tr>
+<tr><td><strong>De vigilante</strong></td><td>Otro agente que revisa el cambio y, donde el riesgo lo pide, lo ejecuta</td><td>Tiene que cazar lo que ya se coló o fallos puestos a propósito.</td></tr>
+<tr><td><strong>De persona</strong></td><td>Tu aprobación</td><td>Se mide cuánto tarda, para detectar aprobaciones sin leer.</td></tr>
 </tbody>
 </table>
 <h3 id="el-contexto">El contexto</h3>
-<p>Una puerta fija lo que el agente tiene que demostrar, pero no le enseña a llegar hasta ahí. Sin nada más, adivina: falla, vuelve a adivinar, y cada vuelta la pagas tú. Lo que le das para que pueda cruzarla es su contexto: la petición, un diseño en Figma o el modelo de datos. Puede estar en el repositorio o venir de fuera: un MCP, una API, un documento suelto, una imagen. A cada puerta le das lo que necesita para esa puerta, porque <a href="doc:los-principios#3-a-cada-puerta-su-contexto">darle todo a la vez tampoco ayuda</a>.</p>
-<p>Una parte no es de ninguna puerta, porque le hace falta en todo el flujo: cómo se trabaja en el proyecto, qué herramientas se usan, las skills de sus tecnologías. A eso lo llamo contexto transversal. Su pieza principal es la constitución, un documento corto con las reglas del proyecto, las que no cambian de un cambio a otro. Como va en cada llamada, es lo que más cuesta, así que cuanto más simple y claro, mejor.</p>
+<p>Una puerta fija lo que el agente tiene que demostrar, pero no le enseña a llegar hasta ahí. Sin nada más, adivina: falla, vuelve a adivinar, y cada vuelta la pagas tú.</p>
+<p>Lo que le das para que pueda cruzarla es su contexto: la petición, un diseño en Figma o el modelo de datos. Puede estar en el repositorio o venir de fuera: un MCP, una API, un documento suelto, una imagen. A cada puerta le das lo que necesita para esa puerta, porque <a href="doc:los-principios#3-a-cada-puerta-su-contexto">darle todo a la vez tampoco ayuda</a>.</p>
+<p>Una parte no es de ninguna puerta, porque le hace falta en todo el flujo: cómo se trabaja en el proyecto, qué herramientas se usan, las skills de sus tecnologías. A eso lo llamo contexto transversal. Su pieza principal es la constitución, y como va en cada llamada, es lo que más cuesta, así que cuanto más simple y clara, mejor.</p>
 <p>Eso y lo de su puerta, que puede incluir lo que generó la anterior, como los escenarios para crear los tests, es todo lo que recibe: cada agente arranca con el contexto limpio, sin la conversación de otro.</p>
-<p>Las comprobaciones hacen que la puerta sea de verdad, y el contexto hace que se pueda cruzar. Sin las primeras, la puerta es un dibujo en la pared. Sin el segundo, es una pared. Eso sí, el contexto no demuestra nada: por muy bueno que sea, lo que la abre sigue siendo una comprobación. El agente no reescribe sus propias instrucciones ni sus skills, y el contexto nunca incluye lo que lo juzga, como los ejemplos ocultos. Si un agente falla siempre en la misma puerta, antes de endurecerla, mira si le falta contexto.</p>
+<p>Las comprobaciones hacen que la puerta sea de verdad, y el contexto hace que se pueda cruzar. Sin las primeras, la puerta es un dibujo en la pared. Sin el segundo, es una pared.</p>
+<p>Eso sí, el contexto no demuestra nada: por muy bueno que sea, lo que abre la puerta sigue siendo una comprobación. El agente no reescribe sus propias instrucciones ni sus skills, y el contexto nunca incluye lo que lo juzga, como los ejemplos ocultos. Si un agente falla siempre en la misma puerta, antes de endurecerla, mira si le falta contexto.</p>
 <h3>Mejor si es determinista</h3>
 <p>Una puerta funciona mejor cuanto más determinista es: ante el mismo cambio, siempre el mismo resultado, como un test o un linter. Cuando no se puede, la refuerzas de otras maneras para que el agente no se salga del carril ni se cuele por un agujero.</p>
 <p>Así lo hacen ya otros equipos. En <a href="https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents-part-2">Stripe</a>, pasos como ejecutar los linters no llaman a ningún modelo: solo ejecutan código. <a href="https://engineering.atspotify.com/2025/12/feedback-loops-background-coding-agents-part-3">Spotify</a> añade, después de los verificadores deterministas, un juez basado en un LLM que veta alrededor de una cuarta parte de las sesiones.</p>
 <p>Las puertas juzgan lo que sale, no lo que hace el agente mientras trabaja, y un comando destructivo ocurre antes de que llegue a ninguna. Por eso, además, trabaja en un entorno acotado, sin acceso a producción y con las credenciales justas, y lo irreversible lo confirma una persona.</p>
 <h3>Dónde falla la comparación con el escape room</h3>
-<p>El escape room de <a href="doc:la-idea">La idea</a> se rompe por dos sitios. En el juego, abrir la última puerta es ganar; aquí solo significa que el agente ha superado lo que sabíamos comprobar, que puede ser menos de lo que necesitabas, como con Mis pedidos, que pasó las cuatro puertas y dejaba ver los pedidos de otra persona.</p>
+<p>El escape room de <a href="doc:la-idea">La idea</a> se rompe por dos sitios. En el juego, abrir la última puerta es ganar. Aquí solo significa que el agente ha superado lo que sabíamos comprobar, que puede ser menos de lo que necesitabas, como con Mis pedidos, que pasó las cuatro puertas y dejaba ver los pedidos de otra persona.</p>
 <p>Y el agente no es tu rival: no hay acertijos que adivinar, porque conoce de antemano casi todo lo que tiene que demostrar. Lo que sí puede hacer es tomar atajos aun sabiendo que no es lo que le pides, como ha observado <a href="https://metr.org/blog/2025-06-05-recent-reward-hacking/">METR</a>, y por eso la puerta no depende de su buena voluntad.</p>
 <h2>Los roles</h2>
 <p>En la tienda mirabas sobre todo al agente, pero alrededor de él hay otros cuatro papeles.</p>
+<table>
+<thead><tr><th>Rol</th><th>Qué hace</th><th>Qué no puede hacer</th></tr></thead>
+<tbody>
+<tr><td><strong>Tú, o tu equipo</strong></td><td>Diseñas el juego: decides el plano, apruebas donde importa y respondes de lo que sale, lo haya escrito quien lo haya escrito.</td><td>Delegar esa responsabilidad. De cada cambio responde su autor, la persona que lo tiene a su cargo: la IA nunca responde por ti.</td></tr>
+<tr><td><strong>El orquestador</strong></td><td>Recibe el cambio, contrata al agente y aplica tu plano a cada caso. Si lo que le piden son varias cosas, propone partes antes de empezar y el autor decide. Al empezar puedes serlo tú.</td><td>Saltarse una puerta o cambiar el plano. Si es un agente, le atan las mismas reglas: puede proponer, pero no hacer ninguna de las dos cosas (más en <a href="doc:el-nucleo">El núcleo</a>).</td></tr>
+<tr><td><strong>El agente</strong></td><td>Es quien juega: hace el trabajo y pasa las puertas.</td><td>Tocar el plano, las comprobaciones o sus propias instrucciones y skills.</td></tr>
+<tr><td><strong>Otro agente, o una persona</strong></td><td>Construye las comprobaciones que define el plano y escribe los casos de cada cambio, en su propia sesión.</td><td>Construir el cambio cuyos casos escribe.</td></tr>
+<tr><td><strong>El vigilante</strong></td><td>Lee el cambio contra lo que debe pasar y, donde el riesgo lo pide, lo ejecuta y solo lo da por bueno si ha comprobado que funciona. Con las skills, en amarillo lo lee y en rojo, además, lo ejecuta.</td><td>Ser el que hizo el trabajo (el porqué está en <a href="doc:los-principios">Los siete principios</a>), o valer como la aprobación de una persona.</td></tr>
+</tbody>
+</table>
+<p class="sigue">Las piezas dicen de qué está hecho GDD. Qué lo hace funcionar lo cuentan <a href="doc:los-principios">Los siete principios</a>.</p>
+<aside data-cruzar>
+<p>¿Vale lo que da por bueno un vigilante como la aprobación de una persona?</p>
 <ul>
-<li><strong>Tú, solo o con tu equipo, diseñas el juego.</strong> Pones el plano, apruebas donde importa y respondes de lo que sale, lo haya escrito quien lo haya escrito. De cada cambio responde su autor, la persona que lo tiene a su cargo: la IA nunca responde por ti.</li>
-<li><strong>El orquestador</strong> recibe el cambio, contrata al agente y aplica tu plano a cada caso. Si lo que le piden son varias cosas, propone partes antes de empezar y el autor decide. Al empezar puedes serlo tú. Si es un agente, le atan las mismas reglas: puede proponer, pero no saltarse una puerta ni cambiar el plano (más en <a href="doc:el-nucleo">El núcleo</a>).</li>
-<li><strong>El agente</strong> es quien juega: hace el trabajo y pasa las puertas.</li>
-<li><strong>Otro agente</strong> construye las comprobaciones que define el plano y escribe los casos de cada cambio, en su propia sesión. También puede hacerlo una persona.</li>
-<li><strong>El vigilante</strong> es otro agente, en su propia sesión y con el contexto limpio: lee el cambio contra lo que debe pasar y, donde el riesgo lo pide, lo ejecuta y solo lo da por bueno si ha comprobado que funciona. Con las skills, en amarillo lo lee y en rojo, además, lo ejecuta. Nunca es el que hizo el trabajo (el porqué está en <a href="doc:los-principios">Los siete principios</a>).</li>
+<li>Sí, si el vigilante es de otro modelo y ha ejecutado el cambio.</li>
+<li data-bien>No: son comprobaciones distintas, y una nunca vale por la otra.</li>
 </ul>
+<p data-si="bien">Eso es. Lo que un vigilante da por bueno nunca cuenta como la aprobación de una persona, y dónde hace falta cada una lo dice el plano.</p>
+<p data-si="mal">No es eso. Aunque sea de otro modelo y lo haya ejecutado, lo que un vigilante da por bueno nunca cuenta como la aprobación de una persona. Dónde hace falta cada una lo dice el plano.</p>
+</aside>

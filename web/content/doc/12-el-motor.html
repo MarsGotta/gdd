@@ -1,16 +1,29 @@
 <h1>El motor</h1>
-<p>Con permisos, protección de ramas, CI y un agente que usa sus propias credenciales ya puedes hacer cumplir buena parte de los siete principios, pero no el <a href="doc:el-nucleo">núcleo</a> entero: es el grado plataforma, el segundo de <a href="doc:como-se-engana-una-puerta#grados">los tres</a>. Las skills y su capa llevan ya la cuenta de todo el cambio, pero la capa la ejecuta un agente y está a su alcance. Lo que se queda fuera es lo que exige que esa cuenta la lleve algo que ningún agente pueda tocar, y eso es lo que hace un motor.</p>
+<p>Con permisos, protección de ramas, CI y un agente que usa sus propias credenciales ya puedes hacer cumplir buena parte de los siete principios, pero no el <a href="doc:el-nucleo">núcleo</a> entero: es el grado plataforma, el segundo de <a href="doc:como-se-engana-una-puerta#grados">los tres</a>.</p>
+<p>Las skills y su capa llevan ya la cuenta de todo el cambio, pero la capa la ejecuta un agente y está a su alcance. Lo que se queda fuera es lo que exige que esa cuenta la lleve algo que ningún agente pueda tocar, y eso es lo que hace un motor.</p>
+<h2>Lo que falta sin motor</h2>
 <table>
 <thead><tr><th>Lo que falta</th><th>Lo que tienes hoy</th><th>Por qué no basta</th></tr></thead>
 <tbody>
 <tr><td><strong>Límites por cambio</strong></td><td>La capa suma los intentos, el tiempo y los tokens de todo el cambio, y no deja empezar otra ronda cuando se acaba un límite.</td><td>Está al alcance del agente que la ejecuta.</td></tr>
 <tr><td><strong>Nada se afloja sin aprobación</strong></td><td>Si las aplicas en tu plataforma, tus ramas protegidas y tu <code>CODEOWNERS</code> piden una persona para cambiar el plano.</td><td>Quien administra el repositorio puede quitar la protección en los ajustes, sin pasar por ninguna puerta.</td></tr>
-<tr><td><strong>Registro completo</strong></td><td>La capa apunta quién hizo qué, qué puerta lo juzgó, cuánto tardó y, cuando tu agente los da, cuántos tokens gastó, y tu CI comprueba que el registro esté entero y en orden.</td><td>Lo escribe una herramienta al alcance del agente: CI ve si está roto, no si falta algo que nunca se apuntó.</td></tr>
+<tr><td><strong>Registro completo</strong></td><td>La capa apunta quién hizo qué, qué puerta lo juzgó, cuánto tardó y, cuando tu agente los da, cuántos tokens gastó. Tu CI comprueba que el registro esté entero y en orden.</td><td>Lo escribe una herramienta al alcance del agente: CI ve si está roto, no si falta algo que nunca se apuntó.</td></tr>
 <tr><td><strong>El orden de las puertas</strong></td><td>La capa rechaza los pasos fuera de orden, y tu CI pasa las puertas sobre el commit exacto.</td><td>La capa se puede saltar. CI no, pero llega al final, antes de fusionar.</td></tr>
 </tbody>
 </table>
-<p>Vale cualquier motor que cumpla esas garantías, también uno escrito por ti. El mío es <a href="https://github.com/MarsGotta/t-minus">T-minus</a>: quiero que imponga el núcleo, que traiga <a href="doc:los-kits">kits</a> y te deje crear los tuyos o cargar los de otros, y que te dé los datos para ver qué mejorar. Todavía está en desarrollo y no hace todo esto, así que lo que sigue es lo que tiene que hacer su versión 1.0, no lo que hace hoy.</p>
+<p>Vale cualquier motor que cumpla esas garantías, también uno escrito por ti.</p>
+<h2>Cuándo hace falta un motor</h2>
+<p>No lo necesitas el primer día. Empieza a hacer falta en estos casos:</p>
+<ul>
+<li>Cuando hay varios agentes o muchos cambios a la vez.</li>
+<li>Cuando tienes que demostrar lo que pasó.</li>
+<li>Cuando la medida de si GDD <a href="doc:como-se-mide">compensa</a> tiene que ser una prueba que ningún agente haya podido tocar.</li>
+<li>Cuando no hay un CI debajo, como suele pasar fuera del software.</li>
+</ul>
+<p>Lo que el motor no sustituye son las <a href="doc:buenas-practicas">buenas prácticas</a>, que van aparte: cómo mantener ciertos los principios en cada momento y qué comprobaciones poner en cada parada. Son una propuesta mía, no una norma.</p>
 <h2>El mismo recorrido: a mano, con las skills y con T-minus</h2>
+<p>El motor que estoy construyendo es <a href="https://github.com/MarsGotta/t-minus">T-minus</a>. Quiero que imponga el núcleo, que traiga <a href="doc:los-kits">kits</a> y te deje crear los tuyos o cargar los de otros, y que te dé los datos para ver qué mejorar.</p>
+<p>Todavía está en desarrollo y no hace todo esto, así que su columna es lo que tiene que hacer su versión 1.0, no lo que hace hoy.</p>
 <p>Es lo que hicimos en <a href="doc:manos-a-la-obra">Manos a la obra</a>: a mano, con las skills de hoy y como lo hará T-minus.</p>
 <table>
 <thead><tr><th>Paso</th><th>Lo que pide el método</th><th>A mano</th><th>Con las skills</th><th>Con T-minus</th></tr></thead>
@@ -27,7 +40,13 @@
 </tbody>
 </table>
 <p>El método te dice qué hay que hacer, y el motor, con cuánta seguridad se hace.</p>
-<h2>Cuándo hace falta un motor</h2>
-<p>No lo necesitas el primer día. Empieza a hacer falta cuando hay varios agentes o muchos cambios a la vez, cuando tienes que demostrar lo que pasó, o cuando la medida de si GDD <a href="doc:como-se-mide">compensa</a> tiene que ser una prueba que ningún agente haya podido tocar. También cuando no hay un CI debajo, como suele pasar fuera del software.</p>
-<p>Lo que el motor no sustituye son las <a href="doc:buenas-practicas">buenas prácticas</a>, que van aparte: cómo mantener ciertos los principios en cada momento y qué comprobaciones poner en cada parada. Son una propuesta mía, no una norma.</p>
 <p class="sigue">Parte de lo que traerá T-minus son reglas ya hechas para un área. Qué son, y qué traerán, está en <a href="doc:los-kits">Los kits</a>.</p>
+<aside data-cruzar>
+<p>¿Se cumple el núcleo entero de GDD con permisos, ramas protegidas y CI?</p>
+<ul>
+<li>Sí: con eso ningún agente puede tocar las comprobaciones ni la rama principal.</li>
+<li data-bien>No: cubren buena parte, pero quien administra el repositorio todavía puede aflojarlos.</li>
+</ul>
+<p data-si="bien">Eso es: es el grado plataforma. El núcleo entero pide que nadie pueda quitar la protección sin que lo apruebe una persona y que la cuenta la lleve algo fuera del alcance de cualquier agente, y eso lo hace un motor.</p>
+<p data-si="mal">Todavía no. Es el grado plataforma: quien administra el repositorio puede quitar la protección en los ajustes, y la capa que lleva la cuenta sigue al alcance de un agente.</p>
+</aside>

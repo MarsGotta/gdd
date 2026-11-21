@@ -18,32 +18,67 @@
 <tr><td><strong>Harden</strong></td><td>Add a regression test or a linter rule, and remove the check that no longer catches anything.</td></tr>
 </tbody>
 </table>
-<p>Some of these options depend on your platform and your plan, and the details come with the first gate, a bit further down.</p>
-<p><strong>What if I can't be bothered to specify every change?</strong> If the change is green, you specify nothing. If it isn't, you don't write a specification: you read the rules and a few scenarios an agent drafts. The standing checks get set up once and then work on their own. And if a change still feels like a chore, something is extra: take that gate out, with your approval or your team's, instead of skipping it.</p>
-<p><strong>And when do I add more?</strong> When something asks for it. Is something slipping through that the tests can't see? Add a reviewer. Does the same failure keep coming back? A standing check. Is splitting up the work eating your time? An orchestrator. Do you want to meet the whole <a href="doc:el-nucleo">core</a> without keeping count by hand? <a href="doc:el-motor">An engine</a>. Every gate costs tokens, waiting and maintenance, so each one has to earn its place.</p>
-<p><strong>And in what order?</strong> Start with a gate that really closes, like the one a little further down. Once it has spent a while catching what it should, start letting go: stop looking yourself at the changes where you never find anything anymore, beginning with the ones with the least risk. Several agents at once come last, because with a gate that doesn't close yet, all you get is more slipping through, and faster.</p>
-<p><strong>And how do I know it pays off?</strong> Write down three things from day one, even by hand: how many times each change gets stopped, how long it takes to ship and what slips through. Before you start, look in your history at what that looked like without GDD, because without that baseline all you'll have is an impression. An engine records it for you, but the question is the same.</p>
+<p>Some of these options depend on your platform and your plan. The details come with the first gate, right below.</p>
 <h2 id="para-empezar-tu-primera-puerta">To start: your first gate</h2>
-<p>The shop in <a href="doc:manos-a-la-obra">Hands on</a> has four gates, but one is enough to start. It's the fourth of the <a href="doc:los-momentos#pasos">seven steps of a change</a>, the gate that closes. On GitHub you need this, and on other platforms the names change, but the idea is the same.</p>
-<p><strong>In CI go the two checks that act as the gate,</strong> and for them you work with two branches:</p>
-<ul>
-<li><code>checks/&lt;change&gt;</code>: the approved tests, and only you write to it. It's the seal of the change: what keeps the checks out of the agent's reach.</li>
-<li><code>&lt;change&gt;</code>: the agent's branch, which comes off the one above. It can add tests, but it can't change or delete the approved ones, or touch what decides how they run, like <code>package.json</code> or CI itself. If it needs to, it stops and asks you, and you make the change on the checks branch.</li>
-</ul>
-<p>The first one, <code>seal</code>, compares the two. If there's no checks branch, it only lets through what you've marked as green in the file. If a change doesn't need new tests, create its <code>checks/&lt;change&gt;</code> branch from <code>main</code>.</p>
+<p>The shop in <a href="doc:manos-a-la-obra">Hands on</a> has four gates, but one is enough to start. It's the fourth of the <a href="doc:los-momentos#pasos">seven steps of a change</a>, the gate that closes.</p>
+<p>The steps are for GitHub. On other platforms the names change, but the idea is the same: two checks in CI, <code>seal</code> and <code>gate</code>, and two branches per change.</p>
+<p><strong>1. Create the checks branch.</strong> It's called <code>checks/&lt;change&gt;</code> and holds the approved tests, which another agent can draft. Only you write to that branch. It's the seal of the change: what keeps the checks out of the agent's reach.</p>
+<p>If a change doesn't need new tests, create its <code>checks/&lt;change&gt;</code> branch anyway, from <code>main</code>.</p>
+<p><strong>2. Create the agent's branch.</strong> It's called <code>&lt;change&gt;</code> and comes off the one above. The agent can add tests, but it can't change or delete the approved ones, or touch what decides how they run, like <code>package.json</code> or CI itself.</p>
+<p>If it needs to, it stops and asks you, and you make the change on the checks branch.</p>
+<p><strong>3. Add the seal check.</strong> It's called <code>seal</code> and compares the two branches. If there's no checks branch, it only lets through what you've marked as green in the file.</p>
 <pre data-copiar><code data-fuente="sello.yml"></code></pre>
-<p>It lives in a file of its own because it uses <code>pull_request_target</code>, and with it GitHub always runs the version on <code>main</code>, even if the agent changes or deletes it on its branch. Since it runs with the repository's permissions, don't put anything there that installs or runs what the agent brings. That's the job of the second one, <code>gate</code>, which runs the tests:</p>
+<p>It lives in a file of its own because it uses <code>pull_request_target</code>, and with it GitHub always runs the version on <code>main</code>, even if the agent changes or deletes it on its branch.</p>
+<p>Since it runs with the repository's permissions, don't put anything there that installs or runs what the agent brings. That's the job of the second check.</p>
+<p><strong>4. Add the check for the tests.</strong> It's called <code>gate</code> and it's the one that runs the tests:</p>
 <pre data-copiar><code data-fuente="puertas.yml"></code></pre>
-<p><strong>In a <code>CODEOWNERS</code> goes whatever is delicate, CI itself included.</strong> If the agent could change those checks, the gate would be worthless.</p>
+<p><strong>5. Give whatever is delicate an owner, CI itself included.</strong> It goes in a <code>CODEOWNERS</code>. If the agent could change those checks, the gate would be worthless.</p>
 <pre data-copiar><code data-fuente="codeowners.txt"></code></pre>
-<p><strong>In the repository settings go two rules:</strong></p>
-<ul>
-<li><strong>On the main branch:</strong> require a PR, passing the <code>seal</code> and <code>gate</code> checks, and review by the code owners when their paths are touched. Tie both to GitHub Actions, because otherwise anyone with write permission can mark them as passed. Dismiss approvals when a new push comes in: your approval only covers what you saw. Not even whoever administers the repository gets to skip it.</li>
-<li><strong>On <code>checks/**/*</code>:</strong> only you can create and write, with a ruleset. That way the agent can't change what you approved or make up a check. With <code>checks/*</code>, branches with a slash in their name would be left out, and the agent picks the name of its own.</li>
-</ul>
-<p><strong>Watch your credentials.</strong> This only works if the agent uses its own, from another account or an app: with yours it can do whatever you can, and a token of yours with fewer permissions is still you. A PR you open yourself that touches your paths can be merged without anyone approving it. Give them permission to write code and open PRs, but not to touch workflows, because one it pushes gets run even if its PR never merges, and it can use the repository's secrets. If your agent allows it, also forbid it from editing <code>tests/</code>, which saves you rounds, although the gate is still CI.</p>
-<p><strong>It depends on your plan.</strong> On GitHub, <a href="https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches">protected branches</a> and <a href="https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets">rulesets</a> are free on public repositories and paid on private ones. Without them, CI warns but doesn't block: it's a gate in the <a href="doc:como-se-engana-una-puerta#grados">rule degree</a>, which holds for as long as you look. On GitLab, <a href="https://docs.gitlab.com/user/project/repository/branches/protected/">protected branches</a> are on the free plan and <a href="https://docs.gitlab.com/user/project/codeowners">Code Owners</a> on Premium: without it, let only people with the maintainer role merge.</p>
+<p><strong>6. Protect the main branch.</strong> In the repository settings, require a PR, passing the <code>seal</code> and <code>gate</code> checks, and review by the code owners when their paths are touched.</p>
+<p>Tie both checks to GitHub Actions, because otherwise anyone with write permission can mark them as passed.</p>
+<p>Dismiss approvals when a new push comes in: your approval only covers what you saw. And make sure not even whoever administers the repository gets to skip this rule.</p>
+<p><strong>7. Reserve the checks branch.</strong> With a ruleset on <code>checks/**/*</code>, so that only you can create and write. That way the agent can't change what you approved or make up a check.</p>
+<p>With <code>checks/*</code>, branches with a slash in their name would be left out, and the agent picks the name of its own.</p>
+<p><strong>8. Give the agent its own credentials.</strong> From another account or an app. With yours it can do whatever you can, and a token of yours with fewer permissions is still you. A PR you open yourself that touches your paths can be merged without anyone approving it.</p>
+<p>Give it permission to write code and open PRs, but not to touch workflows, because one it pushes gets run even if its PR never merges, and it can use the repository's secrets.</p>
+<p>If your agent allows it, also forbid it from editing <code>tests/</code>. That saves you rounds, although the gate is still CI.</p>
+<p><strong>And that's it.</strong> With this, an agent's change doesn't get into <code>main</code> without passing the tests you approved, exactly as you approved them. Whether that truly blocks it, and doesn't just warn, depends on your plan.</p>
+<h2 id="que-garantiza">What it guarantees, and what it doesn't</h2>
+<p>On GitHub, <a href="https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches">protected branches</a> and <a href="https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets">rulesets</a> are free on public repositories and paid on private ones. Without them, CI warns but doesn't block: it's a gate in the <a href="doc:como-se-engana-una-puerta#grados">rule degree</a>, which holds for as long as you look.</p>
+<p>On GitLab, <a href="https://docs.gitlab.com/user/project/repository/branches/protected/">protected branches</a> are on the free plan and <a href="https://docs.gitlab.com/user/project/codeowners">Code Owners</a> on Premium: without it, let only people with the maintainer role merge.</p>
+<p>With protected branches and the ruleset on, it's a real gate, although it doesn't cover everything:</p>
+<table>
+<thead><tr><th>It guarantees</th><th>It doesn't guarantee</th></tr></thead>
+<tbody>
+<tr><td>That the approved tests don't change or disappear.</td><td>That they're enough: it won't catch a solution tailored to the tests. That's what the reviewer and the <a href="doc:buenas-practicas#practica-16">hidden examples</a> are for.</td></tr>
+<tr><td>That nothing gets merged with a failing test.</td><td>The whole core: what's missing is in <a href="doc:el-motor">The engine</a>.</td></tr>
+<tr><td>That the agent doesn't change what you approved, if it uses its own credentials.</td><td>Anything, if it uses yours: with them it can do whatever you can.</td></tr>
+<tr><td>That nobody skips the review of the delicate paths, not even whoever administers the repository.</td><td>That whoever administers doesn't change the settings: they can take the protection off whenever they want.</td></tr>
+</tbody>
+</table>
+<h2 id="mas-adelante">Later on</h2>
 <p><strong>When <code>main</code> changes.</strong> If another change touches an approved test or <code>package.json</code>, bring that change into the checks branch, or the gate will close on you.</p>
-<p><strong>What this gate doesn't cover.</strong> It's a real gate, but it doesn't cover the whole core (what's missing is in <a href="doc:el-motor">The engine</a>), and it won't catch a solution tailored to the tests either: that's what the reviewer and the <a href="doc:buenas-practicas#practica-16">hidden examples</a> are for.</p>
 <p><strong>If you install the skills later.</strong> The skills seal each change on another branch, <code>gdd-seal/&lt;id&gt;</code>, and check the seal with their layer, not with <code>seal</code>. Before you switch, take <code>seal</code> out of the required checks, or their pull requests will get stuck. Your agent gives you what the layer puts in its place when it sets up.</p>
+<h2 id="preguntas">Four questions</h2>
+<h3>What if I can't be bothered to specify every change?</h3>
+<p>If the change is green, you specify nothing. If it isn't, you don't write a specification: you read the rules and a few scenarios an agent drafts. The standing checks get set up once and then work on their own.</p>
+<p>And if a change still feels like a chore, something is extra: take that gate out, with your approval or your team's, instead of skipping it.</p>
+<h3>And when do I add more?</h3>
+<p>When something asks for it. Is something slipping through that the tests can't see? Add a reviewer. Does the same failure keep coming back? A standing check. Is splitting up the work eating your time? An orchestrator. Do you want to meet the whole <a href="doc:el-nucleo">core</a> without keeping count by hand? <a href="doc:el-motor">An engine</a>.</p>
+<p>Every gate costs tokens, waiting and maintenance, so each one has to earn its place.</p>
+<h3>And in what order?</h3>
+<p>Start with a gate that really closes, like the one in this chapter. Once it has spent a while catching what it should, start letting go: stop looking yourself at the changes where you never find anything anymore, beginning with the ones with the least risk.</p>
+<p>Several agents at once come last, because with a gate that doesn't close yet, all you get is more slipping through, and faster.</p>
+<h3>And how do I know it pays off?</h3>
+<p>Write down three things from day one, even by hand: how many times each change gets stopped, how long it takes to ship and what slips through.</p>
+<p>Before you start, look in your history at what that looked like without GDD, because without that baseline all you'll have is an impression. An engine records it for you, but the question is the same.</p>
 <p class="sigue">With a gate that closes, what comes next is a delicate change, step by step, in <a href="doc:un-caso-delicado">A delicate case</a>. If you'd rather have your agents carry the whole method, it's in <a href="doc:empieza">Get started</a>.</p>
+<aside data-cruzar>
+<p>Your agent works with your credentials. Does the gate still hold?</p>
+<ul>
+<li>Yes: the checks are still in CI and the main branch is still protected.</li>
+<li data-bien>No: with your credentials it can do whatever you can.</li>
+</ul>
+<p data-si="bien">That's it. It can write to the checks branch, or merge a PR that touches your paths without anyone approving it. The gate only holds if the agent uses credentials of its own.</p>
+<p data-si="mal">No. CI and the protection are still there, but the agent goes through them as if it were you, on the checks branch too. Give it credentials of its own, from another account or an app.</p>
+</aside>

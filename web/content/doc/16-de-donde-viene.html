@@ -1,5 +1,7 @@
 <h1>De dónde viene</h1>
-<p>GDD no pretende inventar nada: estandariza lo que me ha funcionado a mí y lo que ha funcionado a otros. Lo que aporta es un lenguaje común, una prueba para saber si una puerta es válida y un recorrido que une el riesgo con el blindaje.</p>
+<p>GDD no pretende inventar nada: estandariza lo que me ha funcionado a mí y lo que ha funcionado a otros.</p>
+<p>Lo que aporta es un lenguaje común, una prueba para saber si una puerta es válida y un recorrido que une el riesgo con el blindaje.</p>
+<h2>De dónde sale cada idea</h2>
 <table>
 <thead><tr><th>Idea</th><th>De quién</th><th>Dónde se nota en GDD</th></tr></thead>
 <tbody>
@@ -15,11 +17,28 @@
 <tr><td>Las fábricas con luz, donde una persona sigue mirando lo que sale caro si falla</td><td><a href="https://addyosmani.com/blog/software-factories/">Addy Osmani, "Software Factories, Light and Dark"</a> (2026)</td><td>Principio 6</td></tr>
 </tbody>
 </table>
-<p>Otros apuntan en la misma dirección, aunque no son el origen de GDD. <a href="https://github.com/suites-dev/boundary-first-engineering">Boundary-First Engineering</a> (2026) sostiene que quien implementa no puede ser quien verifica. Y <a href="https://medium.com/wix-engineering/the-ai-coding-agent-manifesto-c8f61629d677">The AI Coding Agent Manifesto</a>, de Shay Cohen en Wix Engineering (2026), pide no dejar que la misma IA escriba y juzgue el código.</p>
-<p>Tampoco todo el sector piensa igual. <a href="https://openai.com/index/harness-engineering/">OpenAI</a>, con mucho volumen, defiende pocas puertas bloqueantes porque "corrections are cheap, and waiting is expensive", aunque admite que sería irresponsable con poco volumen. GDD lo resuelve por riesgo: en verde, una puerta puede quedar abierta y lo que falle se corrige después; en rojo, se espera.</p>
-<p>Y escribir una especificación no garantiza nada por sí solo. En <a href="https://drops.dagstuhl.de/storage/00lipics/lipics-vol394-esem2026/LIPIcs.ESEM.2026.84/LIPIcs.ESEM.2026.84.pdf">un estudio de 88.052 PR</a> (Hill, ESEM 2026), las que tenían una especificación enlazada no introdujeron menos defectos que las demás. Mide issues y tickets, no herramientas de SDD. Por eso en GDD una regla no cuenta hasta que algo la comprueba.</p>
-<h3>Otras fuentes citadas</h3>
-<p>Varios títulos de esta lista hablan de <em>harness engineering</em>. Yo lo llamo entorno del agente: todo lo que lo rodea (herramientas, permisos y comprobaciones).</p>
+<h2>En la misma dirección</h2>
+<p>Otros apuntan en la misma dirección, aunque no son el origen de GDD.</p>
+<ul>
+<li><a href="https://github.com/suites-dev/boundary-first-engineering">Boundary-First Engineering</a> (2026) sostiene que quien implementa no puede ser quien verifica.</li>
+<li><a href="https://medium.com/wix-engineering/the-ai-coding-agent-manifesto-c8f61629d677">The AI Coding Agent Manifesto</a>, de Shay Cohen en Wix Engineering (2026), pide no dejar que la misma IA escriba y juzgue el código.</li>
+<li>Google publica en abierto un plugin, <a href="https://github.com/google/elephant-goldfish-model">Elephant-Goldfish Model</a>, en el que un agente con todo el contexto redacta y otros, con el contexto limpio, revisan lo que ha redactado. Es lo que hace el vigilante de GDD.</li>
+</ul>
+<h2>La evidencia</h2>
+<ul>
+<li><a href="https://survey.stackoverflow.co/2025/ai">Stack Overflow, 2025</a>: la mayor frustración con la IA, citada por el 66 % de quienes respondieron, eran las soluciones casi correctas, pero no del todo.</li>
+<li><a href="https://metr.org/blog/2025-06-05-recent-reward-hacking/">METR, 2025</a>: los modelos más avanzados del momento sacaron puntuaciones imposibles manipulando al propio evaluador, aun mostrando que sabían que eso no era lo que se les pedía.</li>
+<li><a href="https://arxiv.org/abs/2510.20270">ImpossibleBench, 2025</a>: con tareas imposibles, cuyos tests contradicen lo que se pide, la única forma de aprobar era hacer trampa. GPT-5 hizo trampa en el 76 % de las tareas de una de las pruebas.</li>
+<li><a href="https://www.anthropic.com/engineering/redesigning-source-control">Anthropic, 2026</a>: en su monorepo pasó de unos 2.500 cambios fusionados al día en mayo a más de 30.000 en septiembre. Eso no lo lee ninguna persona.</li>
+<li><a href="https://dora.dev/research/2025/dora-report/">DORA, 2025</a>: la IA es, sobre todo, un amplificador de las fortalezas y las debilidades que ya tiene cada organización.</li>
+</ul>
+<h2>Los contrapuntos</h2>
+<p>No todo el sector piensa igual. <a href="https://openai.com/index/harness-engineering/">OpenAI</a>, con mucho volumen, defiende pocas puertas bloqueantes porque "corrections are cheap, and waiting is expensive", aunque admite que sería irresponsable con poco volumen.</p>
+<p>GDD lo resuelve por riesgo: en verde, una puerta puede quedar abierta y lo que falle se corrige después; en rojo, se espera.</p>
+<p>Escribir una especificación tampoco garantiza nada por sí solo. En <a href="https://drops.dagstuhl.de/storage/00lipics/lipics-vol394-esem2026/LIPIcs.ESEM.2026.84/LIPIcs.ESEM.2026.84.pdf">un estudio de 88.052 PR</a> (Hill, ESEM 2026), las que tenían una especificación enlazada no introdujeron menos defectos que las demás. Mide issues y tickets, no herramientas de SDD.</p>
+<p>Por eso en GDD una regla no cuenta hasta que algo la comprueba.</p>
+<h2>Otras fuentes citadas</h2>
+<p>Aquí también están las fuentes de todos los demás capítulos. Varios títulos de esta lista hablan de <em>harness engineering</em>. Yo lo llamo entorno del agente: todo lo que lo rodea (herramientas, permisos y comprobaciones).</p>
 <ul>
 <li><strong>La necesidad:</strong> <a href="https://survey.stackoverflow.co/2025/ai">Stack Overflow Developer Survey 2025</a>; <a href="https://dora.dev/research/2025/dora-report/">informe DORA 2025</a>.</li>
 <li><strong>La evidencia:</strong> <a href="https://metr.org/blog/2025-06-05-recent-reward-hacking/">METR, "Recent Frontier Models Are Reward Hacking"</a> (2025); <a href="https://arxiv.org/abs/2510.20270">Zhong, Raghunathan y Carlini, ImpossibleBench</a> (2025); <a href="https://arxiv.org/abs/2501.12862">Foster y otros, mutantes generados con LLM en Meta</a> (2025).</li>
@@ -29,8 +48,8 @@
 <li><strong>Preparar un producto:</strong> <a href="https://doi.org/10.1287/mnsc.2018.3249">Camuffo y otros, "A Scientific Approach to Entrepreneurial Decision Making"</a> (2020); <a href="https://github.com/bmad-code-org/BMAD-METHOD/blob/main/skills/method/bmad-agent-analyst/assets/template-brief.md">BMAD, plantilla del resumen de producto</a>; <a href="https://top10.owasp.org/2025/A06_2025-Insecure_Design/">OWASP Top 10:2025, "Insecure Design"</a>; <a href="https://basecamp.com/shapeup/3.2-chapter-11">Shape Up, capítulo 11</a>; <a href="https://www.mountaingoatsoftware.com/agile/the-dangers-of-a-definition-of-ready">Cohn, "The Dangers of a Definition of Ready"</a>.</li>
 <li><strong>Cómo medir:</strong> <a href="https://dora.dev/guides/dora-metrics">DORA, métricas de entrega de software</a>.</li>
 <li><strong>El punto de partida:</strong> <a href="https://github.com/github/spec-kit">GitHub Spec Kit</a>.</li>
-<li><strong>Quienes apuntan en la misma dirección:</strong> <a href="https://github.com/suites-dev/boundary-first-engineering">Boundary-First Engineering</a> (2026); <a href="https://medium.com/wix-engineering/the-ai-coding-agent-manifesto-c8f61629d677">Cohen, "The AI Coding Agent Manifesto"</a> (2026).</li>
+<li><strong>Quienes apuntan en la misma dirección:</strong> <a href="https://github.com/suites-dev/boundary-first-engineering">Boundary-First Engineering</a> (2026); <a href="https://medium.com/wix-engineering/the-ai-coding-agent-manifesto-c8f61629d677">Cohen, "The AI Coding Agent Manifesto"</a> (2026); <a href="https://github.com/google/elephant-goldfish-model">Google, Elephant-Goldfish Model</a>.</li>
 <li><strong>La normativa:</strong> <a href="https://ce.prod.cloudaware.com/frameworks/pci-dss-v4.0.1/06/02/03/01">PCI DSS, requisito 6.2.3.1</a>.</li>
 <li><strong>Las plataformas:</strong> <a href="https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches">GitHub, ramas protegidas</a>; <a href="https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets">GitHub, rulesets</a>; <a href="https://docs.gitlab.com/user/project/repository/branches/protected/">GitLab, ramas protegidas</a>; <a href="https://docs.gitlab.com/user/project/codeowners">GitLab, Code Owners</a>.</li>
 </ul>
-<p>Aquí también están las fuentes de todos los demás capítulos. Enlaces y cifras, comprobados el 2 de noviembre de 2026 (los de Boundary-First, Wix, Google, StrongDM y DORA, el 3; los de Wynne, O'Reilly, Kniberg, Hill, Camuffo, BMAD, OWASP, Shape Up, Cohn, TiCoder y "Asking What Matters", el 18).</p>
+<p>Enlaces y cifras, comprobados el 2 de noviembre de 2026 (los de Boundary-First, Wix, Google, StrongDM y DORA, el 3; los de Wynne, O'Reilly, Kniberg, Hill, Camuffo, BMAD, OWASP, Shape Up, Cohn, TiCoder y "Asking What Matters", el 18; y el de Elephant-Goldfish Model, el 21).</p>

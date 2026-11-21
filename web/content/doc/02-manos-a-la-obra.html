@@ -1,6 +1,7 @@
 <h1>Manos a la obra</h1>
 <p>Ya conoces la idea, así que vamos a ejecutarla. No te preocupes, que esta parte es guiada: la recorremos pieza a pieza, y cada cosa te la explico en el momento en que hace falta.</p>
-<p>Nos han pedido construir una tienda online. Creo que es un ejemplo que todos conocemos y además lleva dentro todo el abanico del riesgo. Un texto, si sale mal, es irrelevante. Una pasarela de pago, si sale mal, le cobra dos veces a tus clientes. Primero prepararemos las puertas juntos, y después revisaremos cuatro cambios para ver si lo que hemos preparado aguanta. La tienda y todo lo que le pasa son inventados.</p>
+<p>Nos han pedido construir una tienda online. Creo que es un ejemplo que todos conocemos y además lleva dentro todo el abanico del riesgo. Un texto, si sale mal, es irrelevante. Una pasarela de pago, si sale mal, le cobra dos veces a tus clientes.</p>
+<p>Primero prepararemos las puertas juntos, y después revisaremos cuatro cambios para ver si lo que hemos preparado aguanta. La tienda y todo lo que le pasa son inventados.</p>
 <h2>Preparar: antes de escribir una línea</h2>
 <p>Lo primero es planificar qué puertas hacen falta y construirlas. Código, todavía ninguno, porque las puertas van primero.</p>
 <p>En este paso te recomiendo apoyarte en un motor de GDD, el programa que hace cumplir el método, porque te quita de encima mucho de lo que vas a ver. El mío, <a href="doc:el-motor">T-minus</a>, todavía está en desarrollo, y aquí nos vamos a valer solo de lo que ya tienes a mano en tu día a día: un repositorio, CI y un agente.</p>
@@ -18,11 +19,18 @@
 <p>Las puertas, al igual que las funcionalidades, van evolucionando con el tiempo, y eso es parte de la magia de GDD. Por ahora, y para simplificar el ejemplo, nos enfocaremos en casos pequeños y concretos.</p>
 <h3>Lo que el agente lleva siempre</h3>
 <p>Antes de las puertas, hay cosas que el agente va a necesitar en todas: de qué va la tienda, cómo trabajamos y qué no se negocia. Eso es la constitución, un documento corto con las reglas del proyecto. En la nuestra pondríamos, por ejemplo, que los precios se guardan en céntimos y que los datos de una tarjeta no se guardan nunca.</p>
-<p>Junto a ella van las herramientas y las skills que se usan en todo el flujo, como las de las tecnologías de la tienda. Todo eso es el contexto transversal, y el agente lo lleva siempre, en todas las puertas. Como va en cada llamada, cuanto más simple y claro, mejor: si algo solo importa en una puerta, se queda en esa puerta. Un motor te ayuda a redactarlo, y es algo que T-minus hará al preparar.</p>
+<p>Junto a ella van las herramientas y las skills que se usan en todo el flujo, como las de las tecnologías de la tienda. Todo eso es el contexto transversal, y el agente lo lleva siempre, en todas las puertas.</p>
+<p>Como va en cada llamada, cuanto más simple y claro, mejor: si algo solo importa en una puerta, se queda en esa puerta. Un motor te ayuda a redactarlo, y es algo que T-minus hará al preparar.</p>
 <h3>Las cuatro puertas</h3>
 <p>Una puerta es lo que el agente tiene que demostrar antes de seguir. Para esta tienda vamos a poner cuatro, una detrás de otra: escenario, testing, refactoring y reviewing. En tu proyecto pueden ser otras, y lo que se mantiene son los <a href="doc:los-momentos#pasos">siete pasos de un cambio</a>.</p>
-<p>Cada puerta lleva dos cosas. Sus comprobaciones son lo que demuestra que se ha cruzado de verdad: un test, un linter, otro agente o una persona.</p>
-<p>Su contexto es lo que le damos al agente, además de lo que ya lleva siempre, para que pueda cruzarla, y es lo que se suele olvidar. <a href="doc:los-principios#3-a-cada-puerta-su-contexto">Una puerta sin contexto es una pared</a>: el agente adivina, falla, vuelve a adivinar, y cada vuelta la pagas tú. Por eso a cada puerta le damos lo que necesita para esa puerta, y nada más: el agente arranca siempre con el contexto limpio. Eso sí incluye lo que generó la puerta anterior, como los escenarios, pero no su conversación.</p>
+<p>Cada puerta lleva dos cosas:</p>
+<dl>
+<dt>Sus comprobaciones</dt>
+<dd>Lo que demuestra que se ha cruzado de verdad: un test, un linter, otro agente o una persona.</dd>
+<dt>Su contexto</dt>
+<dd>Lo que le damos al agente, además de lo que ya lleva siempre, para que pueda cruzarla. Es lo que se suele olvidar.</dd>
+</dl>
+<p><a href="doc:los-principios#3-a-cada-puerta-su-contexto">Una puerta sin contexto es una pared</a>: el agente adivina, falla, vuelve a adivinar, y cada vuelta la pagas tú. Por eso a cada puerta le damos lo que necesita para esa puerta, y nada más: el agente arranca siempre con el contexto limpio. Eso sí incluye lo que generó la puerta anterior, como los escenarios, pero no su conversación.</p>
 <table>
 <thead><tr><th>Puerta</th><th>Qué tiene que demostrar</th><th>Contexto</th><th>Comprobaciones, como mucho</th></tr></thead>
 <tbody>
@@ -32,14 +40,25 @@
 <tr><td>Reviewing</td><td>Que está listo para entrar</td><td>La PR</td><td>CI y un code reviewer: otro vigilante, una persona o los dos</td></tr>
 </tbody>
 </table>
-<p><strong>Escenario.</strong> Antes de construir nada, ponemos por escrito qué debe pasar. Lo hacemos en Gherkin, un lenguaje pensado para describir comportamiento con frases de Dado, Cuando y Entonces. Lo puede leer cualquiera, y una herramienta como Cucumber lo puede ejecutar. Le pasas a un agente la petición y el diseño en Figma, y él te lo redacta:</p>
+<p><strong>Escenario.</strong> Antes de construir nada, ponemos por escrito qué debe pasar. Lo hacemos en Gherkin, un lenguaje pensado para describir comportamiento con frases de Dado, Cuando y Entonces. Lo puede leer cualquiera, y una herramienta como Cucumber lo puede ejecutar. Le pasas a un agente la petición y el diseño en Figma, y él te lo redacta, cada escenario debajo de la regla que comprueba:</p>
 <pre><code data-fuente="escenario-pago.txt"></code></pre>
-<p><strong>Testing.</strong> Esta comprobación se moldea a cada cambio, y por eso la llamo a medida. Otro modelo convierte los escenarios en tests, y esos tests son los que nuestro agente tendrá que pasar. Que los escriba otro tiene su motivo: quien cruza la puerta no decide cómo se valida. Antes de seguir, tienen que fallar, y por la razón correcta, porque una puerta que nunca cierra no es una puerta. Al agente le damos los escenarios, y los esquemas y el modelo de datos, para que no se invente la forma de un pedido.</p>
-<p><strong>Refactoring.</strong> Con los tests pasando, le pedimos que mejore el código, porque funcionar y poder mantenerlo son cosas distintas. Las comprobaciones de esta puerta son de serie, porque valen para todo el proyecto, y deterministas, porque ante el mismo código dan siempre el mismo resultado: linters, tipado y Sonar, un analizador de calidad. De contexto le damos skills de buenas prácticas. Y cuando hay riesgo, lleva además un vigilante: otro agente, de otro modelo y con el contexto limpio, que revisa el cambio contra lo que debe pasar y, en lo más delicado, lo ejecuta como lo haría quien usa la tienda y solo lo da por bueno si comprueba que funciona.</p>
+<p><strong>Testing.</strong> Otro modelo convierte los escenarios en tests, y esos tests son los que nuestro agente tendrá que pasar. Esta comprobación se moldea a cada cambio, y por eso la llamo a medida.</p>
+<p>Que los escriba otro tiene su motivo: quien cruza la puerta no decide cómo se valida. Antes de seguir, tienen que fallar, y por la razón correcta, porque una puerta que nunca cierra no es una puerta. Al agente le damos los escenarios, y los esquemas y el modelo de datos, para que no se invente la forma de un pedido.</p>
+<p><strong>Refactoring.</strong> Con los tests pasando, le pedimos que mejore el código, porque funcionar y poder mantenerlo son cosas distintas. Las comprobaciones de esta puerta son de serie, porque valen para todo el proyecto, y deterministas, porque ante el mismo código dan siempre el mismo resultado: linters, tipado y Sonar, un analizador de calidad. De contexto le damos skills de buenas prácticas.</p>
+<p>Cuando hay riesgo, lleva además un vigilante: otro agente, de otro modelo y con el contexto limpio, que revisa el cambio contra lo que debe pasar. En esta tienda el plano le pide que, en amarillo y en rojo, además lo ejecute como lo haría quien la usa, y que solo lo dé por bueno si comprueba que funciona. Con las skills, en amarillo lo lee y en rojo, además, lo ejecuta.</p>
 <p><strong>Reviewing.</strong> Es la fase de la PR, donde tiene que pasar CI y un code reviewer, que puede ser otro modelo, una persona o los dos. Si es un modelo, es un vigilante más: revisa el cambio y, en lo delicado, lo ejecuta antes de darlo por bueno. Si es una persona, lo aprueba, y una cosa nunca vale por la otra.</p>
 <h3>El semáforo</h3>
-<p>Las cuatro puertas están siempre, pero no le pueden pedir lo mismo a un texto que a la pasarela de pago. De eso se encarga el semáforo: te indica el riesgo de cada cambio, y según su color las puertas se endurecen o se ablandan. Puede ser un script determinista, un modelo de decisiones o una persona, y un motor te lo da ya construido. Sea cual sea, mira lo que se ha tocado, no lo que el agente dice haber hecho, se vuelve a calcular al terminar y solo puede subir.</p>
-<p>A nosotros nos basta un script que mira qué archivos ha tocado el cambio. Lo delicado, que de momento es <code>pagos/</code>, <code>admin/</code> y las migraciones, es rojo, porque lo que no se puede deshacer nunca es verde. Lo inocuo, como <code>textos/</code>, es verde. Y todo lo demás lo marcamos amarillo a propósito, porque verde es solo lo que hemos marcado como verde.</p>
+<p>Las cuatro puertas están siempre, pero no le pueden pedir lo mismo a un texto que a la pasarela de pago. De eso se encarga el semáforo: te indica el riesgo de cada cambio, y según su color las puertas se endurecen o se ablandan.</p>
+<p>Puede ser un script determinista, un modelo de decisiones o una persona, y un motor te lo da ya construido. Sea cual sea, mira lo que se ha tocado, no lo que el agente dice haber hecho, se vuelve a calcular al terminar y solo puede subir.</p>
+<p>A nosotros nos basta un script que mira qué archivos ha tocado el cambio. De momento, le decimos esto:</p>
+<table>
+<thead><tr><th>Color</th><th>Qué entra</th><th>Por qué</th></tr></thead>
+<tbody>
+<tr><td><strong>Rojo</strong></td><td><code>pagos/</code>, <code>admin/</code> y las migraciones</td><td>Es lo delicado, y lo que no se puede deshacer nunca es verde</td></tr>
+<tr><td><strong>Verde</strong></td><td><code>textos/</code></td><td>Es inocuo</td></tr>
+<tr><td><strong>Amarillo</strong></td><td>Todo lo demás</td><td>Lo marcamos así a propósito, porque verde es solo lo que hemos marcado como verde</td></tr>
+</tbody>
+</table>
 <p>Fíjate en cuántas veces te llama cada color. Una puerta abierta es la que en ese color no pide nada:</p>
 <figure data-pieza="puertas"></figure>
 <table>
@@ -61,7 +80,8 @@
 <li><strong>El contexto</strong>, en el repositorio: la constitución en el archivo de instrucciones del agente, las skills y los esquemas de datos. Lo que viene de fuera, como el diseño en Figma, le llega por un MCP o con la petición.</li>
 <li><strong>Lo que el agente no puede tocar</strong>, protegido con la rama y un <code>CODEOWNERS</code>, el archivo de GitHub que dice quién tiene que aprobar qué: los tests, CI, el script del semáforo, la constitución y el plano. Los tests aprobados se guardan además en una rama aparte, y CI la compara con la del agente. Con eso tienes buena parte de la garantía, y la completa solo la da un motor.</li>
 </ul>
-<p>Las puertas y el contexto, juntos, forman el entorno del agente, lo que en inglés llaman harness. Antes de darlo por bueno falta una cosa, y es intentar burlarlo: a cada comprobación le das un caso malo a propósito, y si lo deja pasar, esa comprobación todavía no sirve. Los detalles de cómo montarlo en tu repositorio están en <a href="doc:empieza-hoy">Una puerta a mano</a>.</p>
+<p>Las puertas y el contexto, juntos, forman el entorno del agente, lo que en inglés llaman harness.</p>
+<p>Antes de darlo por bueno falta una cosa, y es intentar burlarlo: a cada comprobación le das un caso malo a propósito, y si lo deja pasar, esa comprobación todavía no sirve. Hasta que aguantan todas, no le pedimos ningún cambio al agente. Los detalles de cómo montarlo en tu repositorio están en <a href="doc:empieza-hoy">Una puerta a mano</a>, y en el <a href="doc:taller">Taller</a> puedes practicar cómo se cuela un error por una puerta que no vale.</p>
 <h2>El viaje: cuatro cambios</h2>
 <p>Ya está todo en pie, así que vamos a pedirle cuatro cambios al agente, de menos a más riesgo. En cada uno te toca lo mismo: mirar qué ha pasado y decidir si el plano ha funcionado. Antes de ver el resultado, piensa qué color le pondrías.</p>
 <p>Cada cambio pasa por dos momentos: Encargar, donde fijamos qué tiene que pasar, y Ejecutar, donde el agente cruza las puertas. Cuando ya está en uso llega Cerrar, donde miras si sirvió. Si algo se cuela, o una puerta deja de aportar, llega el último, Blindar.</p>
@@ -72,8 +92,28 @@
 <tbody>
 <tr><td>El texto de un botón</td><td>Verde</td><td>Nada, no hacía falta</td><td>Nada</td><td>Solo, al pasar su semana</td></tr>
 <tr><td>Un filtro por talla</td><td>Amarillo</td><td>Una talla sin resultados y el filtro perdido en la segunda página</td><td>Aprobar sus reglas</td><td>Sí, a los diez días</td></tr>
-<tr><td>La pasarela de pago</td><td>Rojo</td><td>Las dos pulsaciones, el test cambiado y el pago con la pasarela caída</td><td>Leer sus reglas, añadir un escenario y aprobar</td><td>Sí, tras el fin de mes</td></tr>
+<tr><td>La pasarela de pago</td><td>Rojo</td><td>Las dos pulsaciones, el test cambiado y el pago con la pasarela caída</td><td>Leer sus reglas, añadir el escenario de las dos pulsaciones, comprobar cómo se deshace y aprobar</td><td>Sí, tras el fin de mes</td></tr>
 <tr><td>Mis pedidos</td><td>Amarillo</td><td>Nada, y se coló</td><td>Aprobar sus reglas, y después decidir qué cambia en el plano</td><td>No: lo que se coló pasa a Blindar</td></tr>
 </tbody>
 </table>
-<p>Las puertas han sido las mismas cuatro veces. Lo que se ha movido es lo que se le pide a cada cambio, lo que te toca a ti y cómo se cierra. Cuando quieras montarlo en tu proyecto, empieza por <a href="doc:empieza">Empieza</a>, con tus agentes, o por <a href="doc:empieza-hoy#para-empezar-tu-primera-puerta">una puerta a mano</a>.</p>
+<p>Las puertas han sido las mismas cuatro veces. Lo que se ha movido es lo que se le pide a cada cambio, lo que te toca a ti y cómo se cierra.</p>
+<h2>Lo que enseña Mis pedidos</h2>
+<p>En Mis pedidos el agente hizo lo que le pedimos, y las puertas lo comprobaron. Falló el plano, no el agente ni las puertas: nadie había dicho que decidir quién ve qué era delicado, y por eso <code>pedidos/</code> salió amarillo.</p>
+<p>Así que blindarlo no se queda en arreglar el código:</p>
+<ul>
+<li><code>pedidos/</code> y todo lo que decide quién ve qué pasan a rojo. Es un cambio en el plano, así que lo apruebas tú, o tu equipo.</li>
+<li>"Una persona no ve los pedidos de otra" pasa a ser un escenario que apruebas, con su test, y se queda como comprobación de serie para todos los cambios.</li>
+<li>El vigilante lo lleva a partir de ahora en lo que comprueba.</li>
+</ul>
+<p>Si otro cambio vuelve a dejar ver un pedido ajeno, el semáforo dice rojo, el test falla y la puerta lo para. Y lo que queda para el siguiente plano es una pregunta que ya nos habíamos hecho al principio:</p>
+<blockquote><p>Antes de clasificar, pregunta qué sería grave si sale mal.</p></blockquote>
+<p class="sigue">En <a href="doc:las-piezas">Las piezas y los roles</a> le pongo nombre a todo lo que acabas de usar. Y cuando quieras montarlo en tu proyecto, empieza por <a href="doc:empieza">Empieza</a>, con tus agentes, o por <a href="doc:empieza-hoy#para-empezar-tu-primera-puerta">una puerta a mano</a>.</p>
+<aside data-cruzar>
+<p>En Mis pedidos pasaron las cuatro puertas. ¿Quiere decir que el cambio estaba bien?</p>
+<ul>
+<li data-bien>No: solo superó lo que el plano sabía comprobar.</li>
+<li>Sí: si pasa todas las puertas, el cambio está bien.</li>
+</ul>
+<p data-si="bien">Eso es. Pasar la última puerta solo dice que el cambio superó lo que sabíamos comprobar, y el plano no marcaba como delicado quién ve qué. Lo que se coló se blinda, y eso cambia el plano.</p>
+<p data-si="mal">No es eso. Pasar la última puerta solo dice que el cambio superó lo que sabíamos comprobar, y aquí el plano no marcaba como delicado quién ve qué. Lo que se coló se blinda, y eso cambia el plano.</p>
+</aside>

@@ -1,5 +1,6 @@
 <h1>Lo que deja en tu repositorio</h1>
-<p>Todo lo que hace GDD queda en archivos que puedes leer, y que se entienden sin las skills. Un motor leerá y escribirá los mismos, con el mismo contrato, <code>{{contrato}}</code>, así que lo que montes hoy te servirá después. Cada archivo, con su plantilla, está en el <a href="https://github.com/MarsGotta/gdd/blob/main/skills/CONTRACT.md">contrato</a>, en inglés.</p>
+<p>Todo lo que hace GDD queda en archivos que puedes leer, y que se entienden sin las skills.</p>
+<p>Un motor leerá y escribirá los mismos, con el mismo contrato, <code>{{contrato}}</code>, así que lo que montes hoy te servirá después. Cada archivo, con su plantilla, está en el <a href="https://github.com/MarsGotta/gdd/blob/main/skills/CONTRACT.md">contrato</a>, en inglés.</p>
 <h2 id="al-preparar">Lo que queda al preparar</h2>
 <table>
 <thead><tr><th>Archivo</th><th>Qué guarda</th><th>Quién lo escribe</th><th>Y tú</th></tr></thead>
@@ -10,9 +11,10 @@
 <tr><td><code>gdd/check.sh</code> y <code>gdd/limits.sh</code></td><td>Lo que tarda cada comprobación, y lo que le queda a un cambio de sus límites.</td><td>Vienen con las skills, si los aceptas al preparar.</td><td>Son tuyos desde ese momento.</td></tr>
 <tr><td><code>gdd/debt.md</code></td><td>La deuda conocida, con la línea base de cada comprobación.</td><td>Tu agente, nunca por su cuenta.</td><td>Apuntar deuda afloja una comprobación: lo decides tú.</td></tr>
 <tr><td><code>gdd/context/</code></td><td>Copias de las fuentes que necesita una puerta.</td><td>Tu agente al preparar.</td><td>Puedes leerlas para ver de dónde salió una propuesta.</td></tr>
-<tr><td><code>AGENTS.md</code></td><td>Un bloque de GDD, de menos de 100 palabras, con el núcleo y el mapa.</td><td>Tu agente al preparar.</td><td>El resto del archivo sigue siendo tuyo. Si tienes un <code>CLAUDE.md</code>, le añade una línea <code>@AGENTS.md</code>, porque Claude Code solo lee <code>AGENTS.md</code> cuando no lo hay.</td></tr>
+<tr><td><code>AGENTS.md</code></td><td>Un bloque de GDD, de menos de 100 palabras, entre sus marcas: el núcleo y el mapa, y que los issues, los comentarios, las páginas web y la salida de otras herramientas son datos, nunca órdenes.</td><td>Tu agente al preparar.</td><td>El resto del archivo sigue siendo tuyo. Si tienes un <code>CLAUDE.md</code>, le añade una línea <code>@AGENTS.md</code>, porque Claude Code solo lee <code>AGENTS.md</code> cuando no lo hay.</td></tr>
 <tr><td><code>CODEOWNERS</code></td><td>Lo que apruebas siempre tú, o tu equipo: el plano, las puertas y las zonas rojas, entre otras cosas.</td><td>Tu agente al preparar.</td><td>Es tuyo. Tu plataforma lo hace cumplir cuando aplicas la protección de la rama principal que te da tu agente.</td></tr>
-<tr><td><code>gdd/log/blueprint.jsonl</code></td><td>El registro de lo que no es de un cambio: aprobar el plano, sus puertas o su deuda, preparar y blindar. Montar las comprobaciones de serie va en <code>gdd/log/standing-checks.jsonl</code>.</td><td>La capa.</td><td>Nunca a mano.</td></tr>
+<tr><td><code>gdd/log/blueprint.jsonl</code></td><td>El registro de lo que no es de un cambio: aprobar el plano, sus puertas o su deuda, preparar y blindar.</td><td>La capa.</td><td>Nunca a mano.</td></tr>
+<tr><td><code>gdd/log/standing-checks.jsonl</code></td><td>El registro de montar las comprobaciones de serie.</td><td>La capa.</td><td>Nunca a mano.</td></tr>
 <tr><td><code>.gdd/gdd</code></td><td>La capa compilada. Git la ignora: cada copia del proyecto compila la suya.</td><td>Tu agente, la primera vez y cuando las skills son más nuevas.</td><td>Nada.</td></tr>
 </tbody>
 </table>
@@ -20,7 +22,7 @@
 <table>
 <thead><tr><th>Archivo</th><th>Qué guarda</th><th>Quién lo escribe</th><th>Y tú</th></tr></thead>
 <tbody>
-<tr><td><code>gdd/briefs/&lt;id&gt;.md</code></td><td>El encargo de un cambio amarillo o rojo: lo que pediste, qué tiene que pasar, cómo se cierra y cómo se deshace.</td><td>El orquestador.</td><td>Lo apruebas, o le dices qué cambiar.</td></tr>
+<tr><td><code>gdd/briefs/&lt;id&gt;.md</code></td><td>El encargo de un cambio amarillo o rojo: lo que pediste, qué tiene que pasar, cómo se cierra y cómo se deshace. Un verde no lo tiene, salvo que tu plano pida que lo apruebes.</td><td>El orquestador.</td><td>Lo apruebas, o le dices qué cambiar.</td></tr>
 <tr><td><code>features/&lt;capacidad&gt;.feature</code></td><td>Las reglas y sus escenarios, con <code>@assumed</code> y <code>@question</code> donde toque.</td><td>El orquestador.</td><td>Lo apruebas con el encargo.</td></tr>
 <tr><td><code>gdd/log/&lt;id&gt;.jsonl</code></td><td>El registro: todo lo que pasó en el cambio, un evento por línea, con quién aprobó qué.</td><td>La capa.</td><td>Nunca a mano: un error se corrige con un evento nuevo.</td></tr>
 <tr><td><code>gdd/log/&lt;id&gt;.engine.jsonl</code></td><td>El diario de la capa: cada vez que se la llamó, y lo que rechazó.</td><td>La capa.</td><td>Nada.</td></tr>
@@ -30,5 +32,19 @@
 <tr><td>La rama <code>gdd-seal/&lt;id&gt;</code></td><td>El sello: el encargo, sus escenarios y sus tests, tal como se aprobaron.</td><td>El orquestador y el agente de los casos.</td><td>Nadie la fusiona. En rojo, puedes aprobar el encargo en una pull request desde ella.</td></tr>
 </tbody>
 </table>
-<p>Actualizar las skills no toca ninguno de estos archivos: el plugin vive en tu agente y tus archivos en tu proyecto. Lo único que se rehace es la capa, y lo hace tu agente (<a href="doc:novedades#actualizar">Novedades</a>).</p>
+<h2 id="siempre">Lo que vale para todos</h2>
+<ul>
+<li><strong>Actualizar no los toca.</strong> Actualizar las skills no toca ninguno de estos archivos: el plugin vive en tu agente y tus archivos en tu proyecto. Lo único que se rehace es la capa, y lo hace tu agente (<a href="doc:novedades#actualizar">Novedades</a>).</li>
+<li><strong>Los registros no se editan.</strong> Ni el de un cambio ni el del plano: un error se corrige con un evento nuevo.</li>
+<li><strong>Lo que afloja una comprobación lo apruebas tú.</strong> Apuntar deuda o quitar algo del plano lo decides tú, o tu equipo, nunca un agente.</li>
+</ul>
 <p class="sigue">Si alguna palabra de estas páginas no te suena, está en el <a href="doc:glosario">Glosario</a>.</p>
+<aside data-cruzar>
+<p>Actualizas las skills. ¿Qué pasa con tu plano y tus registros?</p>
+<ul>
+<li>Se rehacen con la plantilla de la versión nueva.</li>
+<li data-bien>Nada: siguen como estaban, y solo se rehace la capa.</li>
+</ul>
+<p data-si="bien">Eso es. El plugin vive en tu agente y tus archivos en tu proyecto, así que actualizar solo cambia las skills y la capa que compila tu agente.</p>
+<p data-si="mal">No. Actualizar no toca tu plano, tus puertas, tus encargos ni tus registros: lo único que se rehace es la capa, y lo hace tu agente.</p>
+</aside>

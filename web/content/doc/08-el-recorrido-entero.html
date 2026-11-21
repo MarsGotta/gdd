@@ -1,22 +1,54 @@
 <h1>El recorrido entero</h1>
-<p>El <a href="doc:un-caso-delicado">caso delicado</a> tenía una puerta y tu aprobación. Mi recorrido entero, el que uso en mis proyectos, tiene cinco puertas y sigue con los mismos códigos de descuento. No necesitas todo esto para empezar: es hasta donde se puede llegar, y lo que automatizará <a href="https://github.com/MarsGotta/t-minus">T-minus</a>, el motor que estoy construyendo. Los tropiezos, en cursiva, son inventados, para que veas qué pasa cuando algo sale mal. Si alguna palabra no te suena, está en el <a href="doc:glosario">Glosario</a>.</p>
+<p>El <a href="doc:un-caso-delicado">caso delicado</a> tenía una puerta y tu aprobación. Mi recorrido entero, el que uso en mis proyectos, tiene cinco puertas y sigue con los mismos códigos de descuento.</p>
+<p>No necesitas todo esto para empezar: es hasta donde se puede llegar, y lo que automatizará <a href="https://github.com/MarsGotta/t-minus">T-minus</a>, el motor que estoy construyendo. Los tropiezos, en cursiva, son inventados, para que veas qué pasa cuando algo sale mal. Si alguna palabra no te suena, está en el <a href="doc:glosario">Glosario</a>.</p>
 <p><strong>Con las skills.</strong> Buena parte de este recorrido la hacen ya <a href="doc:las-skills">las skills</a>: tu agente escribe contigo las reglas y los escenarios, otro escribe los casos, otro el código, un vigilante lo revisa y la capa cuenta los topes y escribe el registro. Lo demás, como desplegar a preproducción antes de la última aprobación, lo añades tú si tu proyecto lo pide.</p>
 <figure data-embed="recorrido"><figcaption>del plano al cierre · 5 puertas</figcaption></figure>
-<p>Las cinco puertas son la preparación, que aprueba una persona al arrancar el proyecto, y cuatro por cada cambio: en los escenarios y en la salida decide una persona, y en el bucle y la PR, las máquinas. Las flechas de la izquierda son las vueltas atrás cuando algo falla. Por debajo siguen siendo los <a href="doc:los-momentos#pasos">pasos de un cambio</a>, repartidos a mi manera. Después de la salida vienen Cerrar, donde miro si sirvió, y Blindar.</p>
-<p><strong>Primero, la preparación, al arrancar el proyecto.</strong> Creo el plano, el <a href="https://martinfowler.com/articles/harness-engineering.html">entorno del agente</a> (todo lo que lo rodea: herramientas, permisos y comprobaciones) y las puertas, y lo aprueba una persona. Añado las skills de cada tecnología que voy a usar (las de React, las de Rust…), además de las de GDD, los linters y las herramientas deterministas que me ayudarán en el proceso de producción. Cuando haya reglas ya hechas para mi área, partiré de ellas, porque traerán casi todo eso; todavía no hay ninguna publicada (<a href="doc:los-kits">Los kits</a>). En la tienda, marco los pagos como zona delicada y los agentes trabajan sin acceso a producción.</p>
+<h2 id="cinco-puertas">Las cinco puertas</h2>
+<p>Son la preparación, que aprueba una persona al arrancar el proyecto, y cuatro por cada cambio:</p>
+<table>
+<thead><tr><th>Puerta</th><th>Cuándo</th><th>Quién decide</th></tr></thead>
+<tbody>
+<tr><td>Preparación</td><td>Una vez, al arrancar el proyecto</td><td>Una persona</td></tr>
+<tr><td>Escenarios</td><td>En cada cambio, antes de que nadie construya</td><td>Una persona</td></tr>
+<tr><td>Bucle</td><td>Mientras se escribe el código</td><td>Las máquinas</td></tr>
+<tr><td>PR</td><td>Cuando el cambio llega a la pull request</td><td>Las máquinas</td></tr>
+<tr><td>Salida</td><td>Antes de integrar el cambio</td><td>Una persona</td></tr>
+</tbody>
+</table>
+<p>Las flechas de la izquierda del dibujo son las vueltas atrás cuando algo falla. Por debajo siguen siendo los <a href="doc:los-momentos#pasos">pasos de un cambio</a>, repartidos a mi manera. Después de la salida vienen Cerrar, donde miro si sirvió, y Blindar.</p>
+<h2 id="preparacion">Primero, la preparación</h2>
+<p>Al arrancar el proyecto, creo el plano, el <a href="https://martinfowler.com/articles/harness-engineering.html">entorno del agente</a> (todo lo que lo rodea: herramientas, permisos y comprobaciones) y las puertas, y lo aprueba una persona. <strong>Puerta de la preparación: persona.</strong></p>
+<p>Añado las skills de cada tecnología que voy a usar (las de React, las de Rust…), además de las de GDD, los linters y las herramientas deterministas que me ayudarán en el proceso de producción. Cuando haya reglas ya hechas para mi área, partiré de ellas, porque traerán casi todo eso; todavía no hay ninguna publicada (<a href="doc:los-kits">Los kits</a>).</p>
+<p>En la tienda, marco los pagos como zona delicada y los agentes trabajan sin acceso a producción.</p>
+<h2 id="cada-cambio">En cada cambio</h2>
 <ol>
-<li><strong>Defino qué tiene que pasar.</strong> Empiezo conversando con el orquestador: le cuento lo que quiero y me ayuda a concretarlo, a rebatirlo o a encontrar una solución mejor. Con eso escribe las reglas de lo que toca y los escenarios de la funcionalidad en Gherkin, y yo apunto qué espero del cambio y dónde lo miraré. Los leo y los apruebo o los rechazo, y con los aprobados ya se puede automatizar gran parte de los casos de uso. Si lo que pido son varias cosas, me propone partes antes de empezar, y decido yo. <em>Aquí rechazo la primera versión: falta un código caducado.</em></li>
-<li><strong>Encargo los casos.</strong> Un agente escribe los tests de esas funcionalidades, también los e2e (los que recorren la aplicación entera, como lo haría quien la usa). CI mira que fallen, y por la razón correcta. Un vigilante comprueba que cubren los escenarios que aprobé y les prueba una solución equivocada a propósito. <em>Si <code>return 45</code> abriera la puerta, los tests volverían a quien los escribió.</em></li>
-<li><strong>Encargo el código a otro agente.</strong> Un agente distinto escribe el código que hace pasar esos tests y lo pasa por varios linters, que le avisan de problemas de calidad y seguridad. Repite ese bucle hasta que un vigilante, con el contexto limpio, ejecuta el cambio y solo lo da por bueno si funciona. <em>Aquí llega el primer KO: el descuento está duplicado en el carrito y en el pago.</em></li>
-<li><strong>Si el agente cree que un test está mal, me avisa.</strong> No lo toca: se para y me lo dice. La comprobación la corrige quien la fabricó o una persona, nunca quien cruza la puerta. <em>Aquí, tres artículos de 9,95 € con un 10 % dan 26,87 € sobre el total y 26,88 € redondeando por línea. El test espera lo primero y el carrito hace lo segundo. No es un error del agente: es una decisión que nadie había tomado, y la tomo yo.</em></li>
-<li><strong>Si se atasca, se para.</strong> Ese bucle solo puede repetirse dos veces. A la tercera, el orquestador decide si hay que cambiar el alcance o el enfoque, y lo habla conmigo. Con las skills, los topes de cada color están en tu plano, y al agotarse tu agente te dice qué funciona, qué falta y qué daría otro intento.</li>
-<li><strong>Dejo que llegue a la PR, pero todavía no integro nada.</strong> Cuando el vigilante lo da por bueno, el agente sube la PR. Allí corren los tests e2e y otro vigilante mira el conjunto, y si hay que cambiar algo, la rama vuelve al agente. <em>Aquí falla un e2e: el resumen del pedido sigue mostrando el precio sin descuento.</em></li>
-<li><strong>Miro donde importa.</strong> Si todo va bien y el cambio toca zonas rojas, como aquí, reviso el código y compruebo cómo se deshace.</li>
-<li><strong>Doy la última aprobación.</strong> El cambio se despliega desde su rama a preproducción, o detrás de una feature flag (la función se queda apagada hasta que alguien la enciende), según el proyecto. Si toca zonas rojas, espero a haberlo revisado; si no, se despliega solo. Ahí compruebo que funciona y apruebo. Solo entonces CI lo comprueba todo otra vez y, si pasa, el cambio se integra y sale. Si digo que no, cierro la PR, y en la rama principal no hay nada que deshacer. GDD no exige esta aprobación: es una comprobación de persona que he elegido en mis proyectos, y en lo delicado la recomiendo.</li>
-<li><strong>Miro si sirvió.</strong> El cambio ya está en uso, pero para mí todavía no está cerrado. Cuando vuelvo a él, el orquestador me enseña lo que se ve, sacado de los pedidos y no de su propio informe, y lo comparo con lo que apunté al principio. Digo sí, todavía no o no. Mientras no miro, el cambio espera a la vista, con el tiempo que lleva, y no frena lo siguiente. <em>Aquí digo todavía no: en dos semanas solo tres pedidos han usado un código, y quiero ver una campaña entera.</em></li>
-<li><strong>Blindo lo que ha fallado.</strong> Con el cambio ya fuera, el orquestador analiza lo que falló por el camino y las grietas que vio, y me propone qué blindar. <em>Aquí propone una regla de arquitectura: el descuento solo se calcula en un sitio.</em> Si se hubiera colado un descuento negativo, ese caso pasaría a ser una regla, con su test, y una pregunta del examen del vigilante. Y si lo ocurrido toca el entorno del agente, repaso el plano y propongo el retoque, y lo aprueba una persona: eso nunca lo decide un agente.</li>
+<li><p><strong>Defino qué tiene que pasar.</strong> Empiezo conversando con el orquestador: le cuento lo que quiero y me ayuda a concretarlo, a rebatirlo o a encontrar una solución mejor. Con eso escribe las reglas de lo que toca y los escenarios de la funcionalidad en Gherkin, y yo apunto qué espero del cambio y dónde lo miraré.</p>
+<p>Los leo y los apruebo o los rechazo, y con los aprobados ya se puede automatizar gran parte de los casos de uso. Si lo que pido son varias cosas, me propone partes antes de empezar, y decido yo. <strong>Puerta de escenarios: persona.</strong></p>
+<p><em>Aquí rechazo la primera versión: falta un código caducado.</em></p></li>
+<li><p><strong>Encargo los casos.</strong> Un agente escribe los tests de esas funcionalidades, también los e2e (los que recorren la aplicación entera, como lo haría quien la usa). CI mira que fallen, y por la razón correcta. Un vigilante comprueba que cubren los escenarios que aprobé y les prueba una solución equivocada a propósito.</p>
+<p><em>Si <code>return 45</code> abriera la puerta, los tests volverían a quien los escribió.</em></p></li>
+<li><p><strong>Encargo el código a otro agente.</strong> Un agente distinto escribe el código que hace pasar esos tests y lo pasa por varios linters, que le avisan de problemas de calidad y seguridad. Repite ese bucle hasta que un vigilante, con el contexto limpio, ejecuta el cambio y solo lo da por bueno si funciona. <strong>Puerta del bucle: máquinas.</strong></p>
+<p>Con las skills, el vigilante lee el cambio en amarillo y, en rojo, como aquí, además lo ejecuta. Tampoco vale su palabra: cada hallazgo de un <code>fix</code> lleva su cita y, en rojo, la orden que lo reproduce, y en rojo su <code>pass</code> dice lo que ejecutó.</p>
+<p><em>Aquí llega el primer KO: el descuento está duplicado en el carrito y en el pago.</em></p></li>
+<li><p><strong>Si el agente cree que un test está mal, me avisa.</strong> No lo toca: se para y me lo dice. La comprobación la corrige quien la fabricó o una persona, nunca quien cruza la puerta.</p>
+<p><em>Aquí, tres artículos de 9,95 € con un 10 % dan 26,87 € sobre el total y 26,88 € redondeando por línea. El test espera lo primero y el carrito hace lo segundo. No es un error del agente: es una decisión que nadie había tomado, y la tomo yo.</em></p></li>
+<li><p><strong>Si se atasca, se para.</strong> En mis proyectos, ese bucle solo puede repetirse dos veces. A la tercera, el orquestador decide si hay que cambiar el alcance o el enfoque, y lo habla conmigo.</p>
+<p>Con las skills, los topes de cada color están en tu plano: la plantilla da dos rondas de arreglo por puerta y tres por cambio, en amarillo y en rojo. Al agotarse, tu agente te dice qué funciona, qué falta y qué daría otro intento.</p></li>
+<li><p><strong>Dejo que llegue a la PR, pero todavía no integro nada.</strong> Cuando el vigilante lo da por bueno, el agente sube la PR. Allí corren los tests e2e y otro vigilante mira el conjunto, y si hay que cambiar algo, la rama vuelve al agente. <strong>Puerta de la PR: máquinas.</strong></p>
+<p><em>Aquí falla un e2e: el resumen del pedido sigue mostrando el precio sin descuento.</em></p></li>
+<li><p><strong>Miro donde importa.</strong> Si todo va bien y el cambio toca zonas rojas, como aquí, reviso el código y compruebo cómo se deshace.</p></li>
+<li><p><strong>Doy la última aprobación.</strong> El cambio se despliega desde su rama a preproducción, o detrás de una feature flag (la función se queda apagada hasta que alguien la enciende), según el proyecto. Si toca zonas rojas, espero a haberlo revisado; si no, se despliega solo. Ahí compruebo que funciona y apruebo. <strong>Puerta de salida: persona.</strong></p>
+<p>Solo entonces CI lo comprueba todo otra vez y, si pasa, el cambio se integra y sale. Si digo que no, cierro la PR, y en la rama principal no hay nada que deshacer.</p>
+<p>GDD no exige esta aprobación: es una comprobación de persona que he elegido en mis proyectos, y en lo delicado la recomiendo. Con las skills, donde tu plano pide que apruebes el cambio, te llega con las pruebas que deja el vigilante: capturas, un vídeo corto o la salida de antes y la de después.</p></li>
+<li><p><strong>Miro si sirvió.</strong> El cambio ya está en uso, pero para mí todavía no está cerrado. Cuando vuelvo a él, el orquestador me enseña lo que se ve, sacado de los pedidos y no de su propio informe, y lo comparo con lo que apunté al principio.</p>
+<p>Digo sí, todavía no o no. Mientras no miro, el cambio espera a la vista, con el tiempo que lleva, y no frena lo siguiente.</p>
+<p><em>Aquí digo todavía no: en dos semanas solo tres pedidos han usado un código, y quiero ver una campaña entera.</em></p></li>
+<li><p><strong>Blindo lo que ha fallado.</strong> Con el cambio ya fuera, el orquestador analiza lo que falló por el camino y las grietas que vio, y me propone qué blindar.</p>
+<p><em>Aquí propone una regla de arquitectura: el descuento solo se calcula en un sitio.</em></p>
+<p>Si se hubiera colado un descuento negativo, ese caso pasaría a ser una regla, con su test, y una pregunta del examen del vigilante. Blindar también va en el otro sentido: si una comprobación no ha cazado nada en mucho tiempo y solo cuesta, me propone aflojarla o retirarla, a partir de los mismos registros.</p>
+<p>Y si lo ocurrido toca el entorno del agente, repaso el plano y propongo el retoque, y lo aprueba una persona: eso nunca lo decide un agente.</p></li>
 </ol>
-<h2>Cuando el camino se tuerce</h2>
+<h2 id="se-tuerce">Cuando el camino se tuerce</h2>
 <table>
 <thead><tr><th>Si pasa esto</th><th>Qué pasa</th></tr></thead>
 <tbody>
@@ -30,3 +62,12 @@
 </tbody>
 </table>
 <p class="sigue">Hasta aquí he dado por hecho que el agente juega limpio. Lo que pasa cuando no lo hace está en <a href="doc:como-se-engana-una-puerta">Cómo se engaña una puerta</a>.</p>
+<aside data-cruzar>
+<p>En este recorrido doy la última aprobación antes de integrar. ¿La exige GDD en cada cambio?</p>
+<ul>
+<li data-bien>No: es una comprobación de persona que he elegido yo, y dónde aprueba una persona lo decide tu plano.</li>
+<li>Sí: es la puerta de salida, y sin ella ningún cambio puede integrarse.</li>
+</ul>
+<p data-si="bien">Eso es. Es mi forma de trabajar, no una regla del método. La plantilla propone revisar el cambio al final solo en rojo, y lo que pide cada color lo decides tú, o tu equipo, en el plano.</p>
+<p data-si="mal">No la exige. Es una comprobación de persona que he elegido en mis proyectos. Dónde aprueba una persona lo decide tu plano, y la plantilla solo propone revisar el cambio al final en rojo.</p>
+</aside>

@@ -1,18 +1,54 @@
 <h1>Un caso delicado</h1>
 <p>En <a href="doc:manos-a-la-obra">la tienda</a> revisaste un cambio delicado. Ahora vas a entrar en uno: toca el cobro, así que hay una zona delicada y, como yo lo recomiendo, tu aprobación.</p>
-<p>Imagina que quieres añadir códigos de descuento a tu tienda online. Tienes lo que tiene casi cualquier equipo: un repositorio, CI y un agente. Nada de orquestadores ni herramientas especiales. Y es un caso delicado a propósito, porque toca el cobro: si aquí no pesa, en lo demás pesa menos.</p>
+<p>Imagina que quieres añadir códigos de descuento a tu tienda online. Tienes lo que tiene casi cualquier equipo: un repositorio, CI y un agente. Nada de orquestadores ni herramientas especiales.</p>
+<p>Y es un caso delicado a propósito, porque toca el cobro: si aquí no pesa, en lo demás pesa menos.</p>
 <figure data-embed="sencillo"><figcaption>un caso delicado · 1 puerta, 7 pasos</figcaption></figure>
-<p><strong>Antes de empezar, una sola vez.</strong> Haces obligatorio que CI pase para fusionar, y marcas <code>pagos/</code> y el propio CI como delicados con un <code>CODEOWNERS</code>. Al agente le das sus propias credenciales, sin acceso a producción. Esto lo montas una vez, y la lista completa, con la rama de las comprobaciones, está en <a href="doc:empieza-hoy">Una puerta a mano</a>.</p>
-<p><strong>1. Decides qué tiene que pasar.</strong> Le pides a un agente las reglas de los códigos y unos escenarios, los lees y los corriges. Apuntas también qué esperas del cambio y dónde lo mirarás: que los códigos traigan pedidos, en los pedidos pagados de la tienda. De escenarios, con este y dos más, un carrito de 80 € y un código caducado, ya está:</p>
-<pre><code data-fuente="escenario.txt"></code></pre>
-<p><strong>2. Un agente escribe los casos.</strong> En una sesión aparte, convierte esos escenarios en tests:</p>
+<h2 id="antes-de-empezar">Antes de empezar, una sola vez</h2>
+<ul>
+<li>Haces obligatorio que CI pase para fusionar.</li>
+<li>Marcas <code>pagos/</code> y el propio CI como delicados con un <code>CODEOWNERS</code>, y en la rama principal exiges la revisión de los propietarios del código. El archivo solo dice de quién es cada ruta: tu aprobación la pide la rama.</li>
+<li>Al agente le das sus propias credenciales, sin acceso a producción.</li>
+</ul>
+<p>Esto lo montas una vez. La lista completa, con la rama de las comprobaciones, está en <a href="doc:empieza-hoy">Una puerta a mano</a>.</p>
+<h2 id="los-siete-pasos">Los siete pasos</h2>
+<ol>
+<li><p><strong>Decides qué tiene que pasar.</strong> Le pides a un agente las reglas de los códigos y unos escenarios, los lees y los corriges.</p>
+<p>Apuntas también qué esperas del cambio y dónde lo mirarás: que los códigos traigan pedidos, en los pedidos pagados de la tienda. De escenarios, con este y dos más, un carrito de 80 € y un código caducado, ya está:</p>
+<pre><code data-fuente="escenario.txt"></code></pre></li>
+<li><p><strong>Un agente escribe los casos.</strong> En una sesión aparte, convierte esos escenarios en tests:</p>
 <pre><code data-fuente="tests.txt"></code></pre>
-<p>Los ejecutas y fallan, que es lo que toca. Miras que fallan porque falta el descuento, no porque haya un import roto, y los guardas en una rama que el agente no puede modificar.</p>
-<p><strong>3. Otro agente pasa la puerta.</strong> Abres otra sesión y le das el trabajo: "Haz pasar estos tests. No los toques. Si crees que están mal, para y dímelo. Tienes dos rondas de CI". Y te vas a hacer otra cosa.</p>
-<p><strong>4. La puerta se cierra.</strong> El agente dice "hecho" y abre la PR. CI dice que no: el test de 80 € falla, porque la solución que ha escrito está hecha a la medida del primero. Nadie te llama: el error le vuelve y lo arregla. En la segunda ronda, los tests pasan y CI confirma que son los que aprobaste.</p>
-<p><strong>5. Miras solo donde importa.</strong> Como el cambio toca <code>pagos/</code>, la PR te pide aprobación. Lees el cambio, compruebas que se puede deshacer y das tu aprobación. Si hubiera sido el texto de un botón, ni te habrías enterado.</p>
-<p><strong>6. Miras si sirvió.</strong> El cambio ya está construido y en uso, pero todavía no cerrado. Cuando vuelves, unos días después, el agente te enseña cuántos pedidos pagados llevan un código, sacados de la tienda y no de lo que él diga. Era lo que apuntaste en el primer paso, y das tu veredicto: sí. Si no hubieras vuelto en un mes, el cambio habría seguido ahí, esperando, sin cerrarse solo.</p>
-<p><strong>7. Si algo se cuela, se blinda.</strong> Una semana después, alguien acumula dos códigos y el total sale negativo. Eso es lo que se coló, y se coló porque nadie lo había escrito. No reescribes el proceso: añades la regla, "el total nunca baja de 0 €", con su escenario y su test. Si ese fallo vuelve, la puerta lo para.</p>
+<p>Los ejecutas y fallan, que es lo que toca. Miras que fallan porque falta el descuento, no porque haya un import roto, y los guardas en una rama que el agente no puede modificar.</p></li>
+<li><p><strong>Otro agente pasa la puerta.</strong> Abres otra sesión y le das el trabajo: "Haz pasar estos tests. No los toques. Si crees que están mal, para y dímelo. Tienes dos rondas de CI". Y te vas a hacer otra cosa.</p></li>
+<li><p><strong>La puerta se cierra.</strong> El agente dice "hecho" y abre la PR. CI dice que no: el test de 80 € falla, porque la solución que ha escrito está hecha a la medida del primero.</p>
+<p>Nadie te llama: el error le vuelve y lo arregla. En la segunda ronda, los tests pasan y CI confirma que son los que aprobaste.</p></li>
+<li><p><strong>Miras solo donde importa.</strong> Como el cambio toca <code>pagos/</code>, la PR te pide aprobación. Lees el cambio, compruebas que se puede deshacer y das tu aprobación. Si hubiera sido el texto de un botón, ni te habrías enterado.</p></li>
+<li><p><strong>Miras si sirvió.</strong> El cambio ya está construido y en uso, pero todavía no cerrado. Cuando vuelves, unos días después, el agente te enseña cuántos pedidos pagados llevan un código, sacados de la tienda y no de lo que él diga.</p>
+<p>Era lo que apuntaste en el primer paso, y das tu veredicto: sí. Si no hubieras vuelto en un mes, el cambio habría seguido ahí, esperando, sin cerrarse solo.</p></li>
+<li><p><strong>Si algo se cuela, se blinda.</strong> Una semana después, alguien acumula dos códigos y el total sale negativo. Eso es lo que se coló, y se coló porque nadie lo había escrito.</p>
+<p>No reescribes el proceso: añades la regla, "el total nunca baja de 0 €", con su escenario y su test. Si ese fallo vuelve, la puerta lo para. Blindar también va en el otro sentido: una comprobación que no caza nada y solo cuesta se afloja o se quita.</p></li>
+</ol>
+<h2 id="en-resumen">En resumen</h2>
 <p><strong>Y ya está.</strong> Has leído unas reglas y unos escenarios, has dado una aprobación, has mirado si sirvió y has añadido un test, sin revisar cada paso ni instalar nada. Lo demás son puertas que añades cuando te hagan falta.</p>
-<p><strong>Con las skills.</strong> Lo he contado a mano para que vieras cada pieza. Con <a href="doc:las-skills">las skills</a>, lo de antes de empezar lo monta tu agente contigo al preparar, los pasos 2 a 4 los hacen tus agentes por su cuenta y te piden el sí en el 1 y en el 5. En el 6, tu agente reúne lo que se ve cuando se lo pides, y en el 7 te propone la comprobación que lo habría cazado.</p>
+<h2 id="con-las-skills">Con las skills</h2>
+<p>Lo he contado a mano para que vieras cada pieza. Con <a href="doc:las-skills">las skills</a>, el reparto queda así si marcas el cobro en rojo y te quedas con lo que pide la plantilla:</p>
+<table>
+<thead><tr><th>Paso</th><th>Con las skills</th></tr></thead>
+<tbody>
+<tr><td>Antes de empezar</td><td>Lo monta tu agente contigo, al preparar.</td></tr>
+<tr><td>1. Decides qué tiene que pasar</td><td>Tu agente lo escribe contigo y te pide el sí.</td></tr>
+<tr><td>2 a 4. Los casos, la puerta y sus rondas</td><td>Lo hacen tus agentes por su cuenta.</td></tr>
+<tr><td>5. Miras solo donde importa</td><td>Te pide el sí, con las pruebas que te deja el vigilante.</td></tr>
+<tr><td>6. Miras si sirvió</td><td>Tu agente reúne lo que se ve cuando se lo pides, y el veredicto es tuyo.</td></tr>
+<tr><td>7. Si algo se cuela</td><td>Tu agente te propone la comprobación que lo habría cazado, y la apruebas tú, o tu equipo.</td></tr>
+</tbody>
+</table>
 <p class="sigue">Para este cambio bastaba una puerta. Cuando quieras verlas todas juntas, y saber qué hago yo si algo se tuerce por el camino, está <a href="doc:el-recorrido-entero">El recorrido entero</a>.</p>
+<aside data-cruzar>
+<p>Marcas <code>pagos/</code> en un <code>CODEOWNERS</code>. ¿Basta eso para que un cambio en el cobro espere tu aprobación?</p>
+<ul>
+<li>Sí: al tocar una ruta marcada, la pull request ya no se fusiona sin ti.</li>
+<li data-bien>No: además, tu rama principal tiene que exigir la revisión de los propietarios del código.</li>
+</ul>
+<p data-si="bien">Eso es. El archivo solo dice de quién es cada ruta, y la aprobación la pide la rama cuando lo exiges. Es una aprobación que eliges tú, no una regla del método.</p>
+<p data-si="mal">No basta. El archivo solo dice de quién es cada ruta: sin exigir en la rama la revisión de los propietarios del código, la pull request se fusiona sin tu aprobación.</p>
+</aside>

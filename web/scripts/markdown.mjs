@@ -32,6 +32,17 @@ export const aMarkdown = (html, enlace) => {
       case 'svg': return $n.attr('aria-label') ? `*${$n.attr('aria-label')}*` : '';
       case 'pre': case 'ki-code-block': return `\`\`\`\n${$n.text().replace(/\n$/, '')}\n\`\`\``;
       case 'blockquote': return bloques(n).split('\n').map((l) => `> ${l}`.trimEnd()).join('\n');
+      case 'dl': {
+        // Each group: its terms, then its definitions, whether or not the page wrapped them in a div.
+        const grupos = [];
+        $n.find('dt, dd').each((_, x) => {
+          if (!grupos.length || (x.name === 'dt' && grupos.at(-1).dd.length)) grupos.push({ dt: [], dd: [] });
+          grupos.at(-1)[x.name].push(enLinea(x).trim());
+        });
+        return grupos.map((g) => `- **${g.dt.join(', ')}**: ${g.dd.join(' ')}`).join('\n');
+      }
+      case 'ki-switch': return `**${enLinea(n).trim()}**`;
+      case 'ki-radio-group': return $n.children('ki-radio').map((_, r) => `- ${enLinea(r).trim()}${$(r).attr('value') === 'bien' ? ' ✓' : ''}`).get().join('\n');
       case 'ul': case 'ol': return $n.children('li').map((k, li) => {
         const marca = n.name === 'ol' ? `${Number($n.attr('start') ?? 1) + k}. ` : '- ';
         const texto = $(li).children('p, ul, ol, pre, ki-code-block, table').length ? bloques(li) : enLinea(li).trim();

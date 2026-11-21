@@ -1,8 +1,9 @@
 <h1>Cuando se para</h1>
-<p>Cada fila es algo que ves, por qué pasa y qué haces tú. Casi siempre la respuesta es nada: tu agente sigue solo y te cuenta en una línea por qué se paró. Cuando te toca a ti, te pregunta una sola cosa, con lo que haría él.</p>
+<p>Cada fila es algo que ves, por qué pasa y qué te toca a ti. Casi siempre la respuesta es nada: tu agente sigue solo y te cuenta en una línea por qué se paró.</p>
+<p>Cuando te toca a ti, te pregunta una sola cosa, con lo que haría él.</p>
 <h2 id="al-instalar">Al instalar</h2>
 <table>
-<thead><tr><th>Ves</th><th>Por qué</th><th>Qué haces</th></tr></thead>
+<thead><tr><th>Ves</th><th>Por qué</th><th>Qué te toca</th></tr></thead>
 <tbody>
 <tr><td><code>claude plugin list</code> no enseña <code>gdd@gdd</code></td><td>El plugin no llegó a instalarse, o tu Claude Code es anterior a la 2.1.275.</td><td>Actualiza Claude Code a la 2.1.275 o posterior y vuelve a instalarlo con la orden de <a href="doc:empieza#instalar">Empieza</a>.</td></tr>
 <tr><td><code>codex plugin list</code> no enseña <code>gdd@gdd</code></td><td>Falta uno de los dos pasos: añadir el origen o instalar desde él.</td><td>Repite los dos: <code>codex plugin marketplace add MarsGotta/gdd</code> y <code>codex plugin add gdd@gdd</code>.</td></tr>
@@ -15,9 +16,9 @@
 <p>En todos los casos, compruébalo con la lista de plugins en una terminal, como en <a href="doc:empieza#comprobar">Empieza</a>, y después abre una sesión nueva.</p>
 <h2 id="en-un-cambio">En un cambio</h2>
 <table>
-<thead><tr><th>Ves</th><th>Por qué</th><th>Qué haces</th></tr></thead>
+<thead><tr><th>Ves</th><th>Por qué</th><th>Qué te toca</th></tr></thead>
 <tbody>
-<tr><td>Espera tu aprobación</td><td>Tu plano pide ahí una persona: el encargo antes de construir, o la pull request al final.</td><td>Léelo y apruébalo. Ningún agente puede hacerlo por ti.</td></tr>
+<tr><td>Espera tu aprobación</td><td>Tu plano pide ahí una persona: el encargo antes de construir, o la pull request al final.</td><td>Léelo y apruébalo. Donde apruebas el cambio, la capa te enseña antes las pruebas que te deja el vigilante. Ningún agente puede aprobar por ti.</td></tr>
 <tr><td><code>@assumed</code> encima de una regla</td><td>Esa regla la eligió tu agente.</td><td>Corrígela si no es la tuya. Al aprobar, la marca se queda.</td></tr>
 <tr><td><code>@question</code> encima de una regla</td><td>La respuesta puede esperar a otro cambio.</td><td>Nada por ahora: la pregunta queda a la vista en el archivo.</td></tr>
 <tr><td>Falla una comprobación</td><td>Una ronda de arreglo, con la orden, su código de salida y sus últimas líneas.</td><td>Nada, salvo que se acabe un límite.</td></tr>
@@ -36,7 +37,7 @@
 <p>Nada se arregla aflojando una comprobación. Cuando una parece mal, solo la corrige quien la escribió o una persona, nunca el agente que tiene que pasarla.</p>
 <h2 id="con-la-capa">Con la capa</h2>
 <table>
-<thead><tr><th>Ves</th><th>Por qué</th><th>Qué haces</th></tr></thead>
+<thead><tr><th>Ves</th><th>Por qué</th><th>Qué te toca</th></tr></thead>
 <tbody>
 <tr><td>La capa rechaza un paso</td><td>Un paso fuera de orden, un archivo que cambió después de sellarse o un tope sin margen.</td><td>Nada: dice por qué y qué ejecutar en su lugar, y tu agente lo hace.</td></tr>
 <tr><td>La capa devuelve el informe del vigilante</td><td>Un fallo de su <code>fix</code> no trae cita o, en rojo, la orden que lo reproduce. O, en rojo, su <code>pass</code> no dice qué ejecutó.</td><td>Nada: tu agente se lo devuelve al mismo vigilante, que lo completa.</td></tr>
@@ -50,3 +51,12 @@
 </tbody>
 </table>
 <p class="sigue">Muchas de estas respuestas las da la capa, y las órdenes que te sirven a ti están en <a href="doc:las-ordenes">Las órdenes de la capa</a>.</p>
+<aside data-cruzar>
+<p>Una comprobación falla y a tu agente le parece mal. ¿Puede aflojarla el agente que construye el cambio para seguir?</p>
+<ul>
+<li data-bien>No: la corrige quien la escribió o una persona, nunca el agente que tiene que pasarla.</li>
+<li>Sí, si deja en el registro por qué la ha aflojado.</li>
+</ul>
+<p data-si="bien">Eso es. Nada se arregla aflojando una comprobación: el que construye se para y lo dice, y la corrige otro.</p>
+<p data-si="mal">Dejarlo en el registro no basta: quien cruza la puerta no decide cómo se valida. La corrige quien la escribió o una persona, nunca el agente que tiene que pasarla.</p>
+</aside>

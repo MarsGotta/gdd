@@ -32,6 +32,43 @@
   sistemaOscuro.addEventListener?.('change', decir);
   decir();
 
+  // "Antes de cruzar": the chapter's door opens on the right answer, and each answer says why.
+  document.querySelectorAll('.cruzar').forEach((puerta) => {
+    const opciones = puerta.querySelector('ki-radio-group');
+    opciones?.addEventListener('change', () => {
+      puerta.dataset.respuesta = opciones.value === 'bien' ? 'bien' : 'mal';
+    });
+  });
+
+  // The map of the documentation: a way in numbers its stops and says where to start. Until Kimen
+  // registers the control, the map stays as it is written, with no numbers.
+  const control = document.querySelector('.rutas__control');
+  const mapa = document.querySelector('.mapa');
+  const rutas = document.querySelector('.rutas');
+  const elegir = (r) => { mapa.dataset.ruta = r; rutas.dataset.ruta = r; };
+  if (control && mapa && rutas) {
+    customElements.whenDefined('ki-segmented-control').then(() => {
+      control.addEventListener('ki-change', (e) => elegir(e.detail.value));
+      elegir(control.getAttribute('value') || 'a');
+    });
+  }
+
+  // The workshop's lab: with the four questions on, the gate holds; each one turned off says what
+  // slips through, and the door of the plan opens. Until the switches are registered, every answer
+  // and both outcomes stay in view, as without scripts.
+  document.querySelectorAll('.laboratorio').forEach((lab) => {
+    const mandos = [...lab.querySelectorAll('ki-switch')];
+    const pintar = () => {
+      const fuera = mandos.filter((m) => !m.checked).map((m) => m.dataset.n);
+      lab.dataset.estado = fuera.length ? 'abre' : 'cierra';
+      lab.querySelectorAll('.laboratorio__porque').forEach((p) => { p.hidden = !fuera.includes(p.dataset.n); });
+    };
+    customElements.whenDefined('ki-switch').then(() => {
+      mandos.forEach((m) => m.addEventListener('change', pintar));
+      pintar();
+    });
+  });
+
   // The index is open beside the text on wide screens and folded above it on narrow ones.
   const indice = document.querySelector('.indice details, .capitulos details');
   if (indice && window.matchMedia('(min-width: 901px)').matches) indice.open = true;

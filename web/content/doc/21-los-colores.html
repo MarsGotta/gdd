@@ -1,5 +1,6 @@
 <h1>Qué pide cada color</h1>
-<p>Un cambio tiene el color de lo más delicado que toca, y su color decide qué tiene que demostrar, quién lo aprueba y cuánto puede gastar. Estos son los valores con que empieza la plantilla del plano. Tu plano decide: puedes cambiar cualquiera, tú o tu equipo, y tus registros te dirán cuáles conviene cambiar. Quitar algo afloja una puerta, así que eso también lo apruebas tú.</p>
+<p>Un cambio tiene el color de lo más delicado que toca, y su color decide qué tiene que demostrar, quién lo aprueba y cuánto puede gastar.</p>
+<p>Lo que sigue son los valores con que empieza la plantilla del plano. Tu plano decide: puedes cambiar cualquiera, tú o tu equipo, y tus registros te dirán cuáles conviene cambiar. Quitar algo afloja una puerta, así que eso también lo apruebas tú.</p>
 <h2 id="por-color">Color a color</h2>
 <table>
 <thead><tr><th>En la plantilla</th><th>Verde</th><th>Amarillo</th><th>Rojo</th></tr></thead>
@@ -10,7 +11,7 @@
 <tr><td>Apruebas lo que debe pasar (<code>brief-approval</code>)</td><td>No</td><td>Sí, en un mensaje de menos de 150 palabras</td><td>Sí, en un mensaje de menos de 200</td></tr>
 <tr><td>Casos del cambio</td><td>No: pasa los tests que ya existen</td><td>Un test por escenario, visto fallar antes de construir</td><td>Además, visto pasar y roto una vez a propósito</td></tr>
 <tr><td>Comprobaciones de máquina</td><td>Sello, tests, lint y secretos</td><td>Las mismas</td><td>Las mismas</td></tr>
-<tr><td>Vigilante (<code>review</code>)</td><td>Mira el color y el sello</td><td>Lee el cambio contra su encargo</td><td>Además lo ejecuta, intenta hacerlo fallar y reproduce cada fallo que pide arreglar</td></tr>
+<tr><td>Vigilante (<code>review</code>)</td><td>Mira el color y el sello</td><td>Lee el cambio contra su encargo</td><td>Además lo ejecuta, intenta hacerlo fallar y reproduce cada fallo que pide arreglar. Su visto bueno dice lo que ejecutó</td></tr>
 <tr><td>Revisas tú el cambio al final (<code>person-review</code>)</td><td>No</td><td>No</td><td>Sí, con las pruebas que te deja el vigilante</td></tr>
 <tr><td>Nivel de los agentes</td><td>Ligero</td><td>Normal</td><td>Normal</td></tr>
 <tr><td>Minutos de trabajo por cambio, sin contar el tiempo que espera tu respuesta</td><td>10</td><td>45</td><td>60</td></tr>
@@ -19,15 +20,35 @@
 <tr><td>Cierre</td><td>Se cierra solo a los 7 días, si nada lo contradice</td><td>Espera tu veredicto, salvo que no prometa nada</td><td>Espera tu veredicto, salvo que no prometa nada</td></tr>
 </tbody>
 </table>
+<h2 id="nombres">Los nombres en tu plano</h2>
+<p>Lo que aprueba una persona y lo que hace el vigilante tienen nombre en las comprobaciones de cada color, en <code>colors</code> dentro de <code>gdd/blueprint.md</code>. Es ahí donde los quitas o los añades, en cualquier color:</p>
+<dl>
+<dt><code>brief-approval</code></dt>
+<dd>Tu aprobación de lo que debe pasar, antes de que nadie construya. La plantilla la pide en amarillo y en rojo.</dd>
+<dt><code>review</code></dt>
+<dd>El vigilante: un agente con el contexto limpio, que no ha visto cómo se hizo el cambio. Cada fallo que pide arreglar lleva su cita.</dd>
+<dt><code>person-review</code></dt>
+<dd>Tu revisión del cambio al final, con las pruebas que te deja el vigilante. La plantilla la pide en rojo.</dd>
+</dl>
 <p>Si quitas <code>brief-approval</code> del amarillo, el encargo y sus escenarios se siguen escribiendo: tu agente te dice en una línea qué hará el cambio y no te espera.</p>
 <h2 id="todos">Para todos los colores</h2>
 <ul>
 <li><strong>Dos tandas de comprobaciones.</strong> En cada ronda, el sello, los tests, el lint y los secretos, en menos de dos minutos juntos. Después, una sola vez antes del vigilante, lo que tarda más, como una prueba de navegador de lo que el cambio toca cuando toca lo que ve una persona, en menos de diez minutos en total.</li>
+<li><strong>La lectura del encargo.</strong> Cuando un vigilante lee el encargo antes de construir, tu agente solo puede descartar un hallazgo de esa lectura citando la línea que lo responde.</li>
 <li><strong>Un aviso por tamaño.</strong> Un cambio de más de 400 líneas sigue adelante, pero el vigilante lo sabe y te llega en una línea.</li>
 <li><strong>Cuando se acaba un límite,</strong> no empieza otra ronda, pero lo ya construido pasa igual sus puertas y su revisión.</li>
 <li><strong>Lo que no cubre ninguna zona nunca es verde.</strong> Tu agente lo juzga en cada cambio, amarillo salvo que haga lo que hace una zona roja, y te pregunta solo si no lo tiene claro.</li>
-<li><strong>Las puertas de cada zona.</strong> Además de lo que pide su color, un cambio pasa las puertas de las zonas que toca, cuando una zona tiene las suyas.</li>
+<li><strong>Las puertas de cada zona.</strong> Además de lo que pide su color, un cambio pasa las puertas de las zonas que toca, cuando una zona tiene las suyas. Si el plano nombra el archivo de puertas de una zona y ese archivo falta, sus puertas no corren y la capa dice por qué.</li>
 <li><strong>Mutación y cobertura no están al empezar.</strong> Las añade Blindar, al valor por defecto de su herramienta, cuando los tests se muestran flojos. Una comprobación que piden unos colores y otros no juzga solo lo que el cambio añade o modifica.</li>
 <li><strong>Los ejemplos ocultos</strong> puede pedirlos el rojo, solo en grado plataforma o motor: más ejemplos de los mismos escenarios, donde el que construye no puede leerlos.</li>
 </ul>
 <p class="sigue">Todo esto queda escrito en archivos de tu repositorio, y cada uno está en <a href="doc:los-archivos">Lo que deja en tu repositorio</a>.</p>
+<aside data-cruzar>
+<p>¿Quién decide que en amarillo apruebes tú lo que debe pasar?</p>
+<ul>
+<li data-bien>Tu plano: la plantilla lo trae así, y puedes cambiarlo, tú o tu equipo.</li>
+<li>El método: un cambio amarillo siempre espera tu aprobación.</li>
+</ul>
+<p data-si="bien">Eso es. Los colores son niveles de riesgo, y lo que se aprueba en cada uno lo decide tu plano. Quitar una aprobación afloja una puerta, así que también lo apruebas tú.</p>
+<p data-si="mal">No. El color dice cuánto riesgo hay; lo que se aprueba en cada color lo decide tu plano, y la plantilla solo trae unos valores para empezar.</p>
+</aside>

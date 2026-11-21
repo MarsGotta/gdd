@@ -35,7 +35,7 @@ const DOCS = {
 const IDIOMAS = Object.keys(DOCS);
 const carpeta = (i) => (i === 'en' ? 'content/en' : 'content');
 const rutaDe = (i, nombre) => DOCS[i][nombre].replace('index.html', '');
-const BLOQUES = 'h1, h2, h3, p, li, th, td, figcaption, pre, ki-code-block';
+const BLOQUES = 'h1, h2, h3, p, li, dt, dd, th, td, figcaption, pre, ki-code-block';
 
 // Source of a document, with the code files its blocks point at.
 const fuenteDe = (nombre, i = 'es') => {
@@ -66,7 +66,7 @@ for (const [i, nombre, ruta] of IDIOMAS.flatMap((x) => Object.entries(DOCS[x]).m
 
   const articulo = page('article.lectura');
   // The one piece a page adds to its document are the pieces of the hands-on chapter (.tutorial), made from its own files.
-  for (const b of articulo.find(BLOQUES).filter((_, n) => !page(n).closest('.tutorial').length).map((_, n) => norm(page(n).text())).get().filter(Boolean)) {
+  for (const b of articulo.find(BLOQUES).filter((_, n) => !page(n).closest('.tutorial').length && !page(n).is('.cruzar__titulo')).map((_, n) => norm(page(n).text())).get().filter(Boolean)) {
     if (!fuenteTexto.includes(b)) fallos.push(`Sobra en ${ruta}, no está en el documento: ${b.slice(0, 100)}`);
   }
 
@@ -522,7 +522,24 @@ for (const [donde, texto] of [['llms.txt', llms], ...copias.filter((c) => existe
   for (const [, url] of texto.matchAll(/\]\((https:\/\/[^)\s]+\.md(?:#[^)\s]*)?)\)/g)) if (url.startsWith(DOMINIO) && !existe(url)) fallos.push(`${donde} lleva a ${url}, que no existe`);
 }
 for (const c of copias) if (!existe(c)) fallos.push(`Falta la copia en Markdown ${c}`);
-console.log(`Para agentes: llms.txt y ${copias.length} copias en Markdown, con sus enlaces.`);
+// Each copy carries every block of its page's text, the questions and switches included, whose
+// words live in Kimen elements the copy has to spell out. Only letters and digits are compared.
+const llano = (s) => s.normalize('NFC').toLowerCase().replace(/\]\([^)]*\)/g, ']').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+const LEIDOS = `${BLOQUES}, ki-switch, ki-radio`;
+let leidos = 0;
+for (const c of copias.filter((c) => existe(c))) {
+  const pagina = path.join(dist, c.replace(/\.md$/, ''));
+  if (!fs.existsSync(pagina)) continue;
+  const $ = cheerio.load(fs.readFileSync(pagina, 'utf8'));
+  const md = llano(fs.readFileSync(path.join(dist, c), 'utf8'));
+  $('article.lectura').find(LEIDOS).filter((_, n) => !$(n).closest('.tutorial').length && !$(n).find(LEIDOS).length).each((_, n) => {
+    const t = llano($(n).text());
+    if (!t) return;
+    leidos += 1;
+    if (!md.includes(t)) fallos.push(`${c} no lleva «${norm($(n).text()).slice(0, 70)}»`);
+  });
+}
+console.log(`Para agentes: llms.txt y ${copias.length} copias en Markdown, con sus enlaces y los ${leidos} bloques de texto de sus páginas.`);
 
 const tam = (dir) => fs.readdirSync(dir).reduce((s, f) => { const p = path.join(dir, f); return s + (fs.statSync(p).isDirectory() ? tam(p) : fs.statSync(p).size); }, 0);
 console.log(`Tamaño total: ${(tam(dist) / 1024).toFixed(0)} KB.`);

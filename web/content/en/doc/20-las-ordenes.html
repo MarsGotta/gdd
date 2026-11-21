@@ -1,9 +1,27 @@
 <h1>The layer's commands</h1>
-<p>The layer keeps the order and the log of every change (<a href="doc:las-skills#capa">The skills</a>), and your agent runs almost all of its commands. These are the ones that are useful to you, from your project's folder. They change nothing: they only note the call in the layer's journal, in <code>gdd/log/</code>, and none of them touches your code or what was approved.</p>
-<p>Their last line, which starts with <code>gdd {</code>, says the same again for the agents, and the examples leave it out. The examples come from a test shop.</p>
+<p>The layer keeps the order and the log of every change (<a href="doc:las-skills#capa">The skills</a>), and your agent runs almost all of its commands. These are the ones that are useful to you, from your project's folder.</p>
+<p>They change nothing: they only note the call in the layer's journal, in <code>gdd/log/</code>, and none of them touches your code or what was approved.</p>
+<table>
+<thead><tr><th>Command</th><th>What it tells you</th></tr></thead>
+<tbody>
+<tr><td><code>.gdd/gdd next</code></td><td>How the project stands and what comes next.</td></tr>
+<tr><td><code>.gdd/gdd next &lt;id&gt;</code></td><td>A change's next step.</td></tr>
+<tr><td><code>.gdd/gdd waiting</code></td><td>The questions waiting for a person.</td></tr>
+<tr><td><code>.gdd/gdd color --paths &lt;paths&gt;</code></td><td>The color a change would get from the paths it will touch.</td></tr>
+<tr><td><code>.gdd/gdd color &lt;id&gt;</code></td><td>The color of what a change actually touched.</td></tr>
+<tr><td><code>.gdd/gdd limits &lt;id&gt;</code></td><td>How much of each limit a change has used.</td></tr>
+<tr><td><code>.gdd/gdd metrics --all --summary</code></td><td>How your changes went.</td></tr>
+<tr><td><code>.gdd/gdd zones</code></td><td>Whether your zones cover what you think.</td></tr>
+<tr><td><code>.gdd/gdd verify --all</code></td><td>Whether the logs are whole.</td></tr>
+<tr><td><code>.gdd/gdd --version</code></td><td>Which version of the layer you have.</td></tr>
+</tbody>
+</table>
+<p>The last line of each answer, which starts with <code>gdd {</code>, says the same again for the agents, and the examples leave it out. The examples come from a test shop.</p>
 <h2 id="next">What comes next: <code>next</code></h2>
 <pre data-copiar><code>.gdd/gdd next</code></pre>
-<p>It tells you how the project stands: whether the blueprint is approved, what's under way, what waits for a person, the changes in use that wait for your verdict and the next thing on the list. With a change's id, <code>.gdd/gdd next &lt;id&gt;</code>, it gives you that change's next step and, if it has passed all its gates, how many minutes it has been like that, without the waits for you. In a shop with a change in use:</p>
+<p>It tells you how the project stands: whether the blueprint is approved, what's under way, what waits for a person, the changes in use that wait for your verdict and the next thing on the list.</p>
+<p>With a change's id, <code>.gdd/gdd next &lt;id&gt;</code>, it gives you that change's next step and, if it has passed all its gates, how many minutes it has been like that, without the waits for you. If the change waits for your review, it quotes you the evidence the reviewer leaves you.</p>
+<p>In a shop with a change in use:</p>
 <pre><code>the standing checks are set up
 in use, waiting for a verdict: cart, 16 days 23 hours; expected: one cart in five holds two or more products
 next in the backlog: catalog-pages (yellow, todo): The catalog in pages</code></pre>
@@ -57,3 +75,12 @@ the zone judges's :(glob).github/** matches no tracked file: a path that doesn't
 <p>The version of the layer in your project. It has to be your skills' version: if it's older, your agent builds it again.</p>
 <pre><code>gdd {{skills}}</code></pre>
 <p class="sigue">What your blueprint asks of each color, with the template's values, is in <a href="doc:los-colores">What each color asks for</a>.</p>
+<aside data-cruzar>
+<p>You run <code>.gdd/gdd next &lt;id&gt;</code> on a change halfway through. Does it move it on?</p>
+<ul>
+<li>Yes: it takes the change's next step and notes it in its log.</li>
+<li data-bien>No: it tells you what the next step is and the command that takes it, without changing anything.</li>
+</ul>
+<p data-si="bien">That's it. These commands look things up: they only note the call in the layer's journal. Your agent takes the step, with the command <code>next</code> names for it.</p>
+<p data-si="mal">It moves nothing on. <code>next</code> tells you the next step and the command that takes it, and only notes the call in the layer's journal. None of these commands touches your code or what was approved.</p>
+</aside>

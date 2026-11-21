@@ -1,0 +1,116 @@
+
+/* --- The documentation, as the design canvas draws it (November 2026) ---
+   The chapter list is a path of stops, the chapter opens with its line of what it is about,
+   tables and definitions are set like a plan's title block, and each chapter ends at a door:
+   "Antes de cruzar", one question whose right answer opens it. */
+
+/* The chapters: a dotted path, one stop each, the one you are on ringed in blue. */
+.capitulos__partes > li > ol { position: relative; margin: 0 0 18px 6px; padding-left: 20px; border-left: 2px dotted var(--ki-outline-med-em); }
+.capitulos__partes > li > ol > li { position: relative; }
+.capitulos__partes > li > ol > li::before { content: ""; position: absolute; left: -27px; top: .85em; width: 10px; height: 10px; border-radius: var(--ki-radius-round); background: var(--papel); border: 1.5px solid var(--tinta-3); }
+.capitulos__partes > li > ol > li:has(> a[aria-current="page"])::before { left: -29px; top: .72em; width: 14px; height: 14px; border: 3px solid var(--persona); background: var(--ki-surface-s0); }
+.capitulos__parte { margin: 0 0 6px; font-weight: 600; font-size: .9375rem; color: var(--tinta); }
+
+/* The head of a chapter: its label, its title and one line of what it is about. */
+.capitulo__bajada { max-width: 40rem; margin: 18px 0 0; font-size: clamp(1.125rem, 1.05rem + .3vw, 1.3125rem); line-height: 1.5; color: var(--tinta-2); text-wrap: pretty; }
+
+/* Quotes and example messages: set apart by a rule, in the text's own voice. */
+.lectura blockquote { margin: 1.5em 0; padding: 2px 0 2px 18px; border-left: 3px solid var(--ki-outline-high-em); }
+.lectura blockquote > :last-child { margin-bottom: 0; }
+
+/* Tables: headers lettered like a plan's title block. */
+.tabla th { font-stretch: 118%; font-size: .6875rem; letter-spacing: var(--ki-typography-letter-spacing-spaced-out); text-transform: uppercase; color: var(--tinta-2); border-bottom: 1px solid var(--ki-outline-high-em); }
+.tabla td { border-bottom-color: var(--ki-outline-med-em); }
+
+/* Definitions: a term and what it means, in a grid of cells. */
+.lectura dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 0 28px; margin: 1.25em 0 1.5em; }
+.lectura dl > div { padding: 14px 0; border-top: 1px solid var(--ki-outline-med-em); }
+.lectura dt { font-weight: 600; }
+.lectura dd { margin: 4px 0 0; font-size: .9375rem; line-height: 1.45; color: var(--tinta-2); }
+
+/* "Antes de cruzar": a wall with its door, closed until the right answer. */
+.cruzar { margin-top: clamp(40px, 5vw, 64px); }
+.cruzar__muro { display: flex; align-items: flex-start; height: var(--gdd-wall); color: var(--muro); }
+.cruzar__muro i { display: block; height: var(--gdd-wall); background: currentColor; }
+.cruzar__muro i:first-child { width: clamp(16px, 5vw, 72px); flex: none; }
+.cruzar__muro i:last-child { flex: 1; }
+.cruzar__muro svg { flex: none; width: var(--gdd-door); height: var(--gdd-door); overflow: visible; }
+.cruzar__arco { fill: none; stroke: currentColor; stroke-width: var(--gdd-line); vector-effect: non-scaling-stroke; }
+.cruzar__hoja { fill: none; stroke: currentColor; stroke-width: var(--gdd-leaf); stroke-linecap: square; vector-effect: non-scaling-stroke; transform-origin: 0 5px; transform: rotate(0deg); }
+.cruzar[data-respuesta="bien"] .cruzar__hoja { transform: rotate(90deg); }
+.cruzar__titulo { margin: calc(var(--gdd-door) + 18px) 0 6px; font-stretch: 118%; font-size: .75rem; letter-spacing: var(--ki-typography-letter-spacing-spaced-out); text-transform: uppercase; color: var(--tinta-2); }
+.cruzar__pregunta { margin: 0 0 16px; font-family: var(--ki-typography-family-display); font-weight: 600; font-stretch: 96%; font-size: 1.25rem; line-height: 1.34; letter-spacing: var(--ki-typography-letter-spacing-sm); }
+/* The question is already above the answers: the group keeps it as its name, out of sight. */
+.cruzar__opciones::part(label) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.cruzar__opciones:not(:defined) { display: block; }
+.cruzar__opciones:not(:defined) ki-radio { display: list-item; margin: 0 0 .5em 1.25em; }
+.cruzar__si { margin: 16px 0 0; padding-left: 14px; border-left: 3px solid var(--ki-outline-med-em); color: var(--tinta-2); }
+.cruzar__si[data-si="bien"] { border-left-color: var(--verde); }
+/* Once the answers are a Kimen group, each explanation waits for its answer. Before the group is
+   registered, without scripts and on paper, both stay in view. */
+@media screen {
+  .cruzar:has(:where(.cruzar__opciones:defined)) .cruzar__si { display: none; }
+  .cruzar[data-respuesta="bien"] .cruzar__si[data-si="bien"], .cruzar[data-respuesta="mal"] .cruzar__si[data-si="mal"] { display: block; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cruzar__hoja { transition: transform var(--gdd-door-swing) var(--ki-motion-easing-out); }
+}
+@media print {
+  .cruzar__muro { display: none; }
+  .cruzar__titulo { margin-top: 0; }
+}
+
+/* The workshop's cases: the question and its answers, without the door. */
+.cruzar--caso { margin: 0; padding: 20px 0; border-top: 1px solid var(--ki-outline-med-em); }
+.cruzar--caso .cruzar__pregunta { font-family: var(--sans); font-weight: 500; font-stretch: 100%; font-size: 1.0625rem; letter-spacing: 0; }
+.cruzar--caso:not(:has(+ .cruzar--caso)) { border-bottom: 1px solid var(--ki-outline-med-em); }
+
+/* The workshop's lab: four switches beside a plan whose door holds or opens. */
+.laboratorio__mandos { display: flex; flex-direction: column; margin: 1.25em 0; }
+.laboratorio__mando { padding: 14px 0; border-top: 1px solid var(--ki-outline-med-em); }
+.laboratorio__mando:last-child { border-bottom: 1px solid var(--ki-outline-med-em); }
+.laboratorio__porque { margin: 8px 0 0; font-size: .9375rem; color: var(--tinta-2); }
+.laboratorio__plano { --x: 56%; position: relative; height: 132px; margin: 1.5em 0 1em; border: var(--gdd-wall) solid var(--muro); background: var(--ki-surface-s0); }
+.laboratorio__muro { position: absolute; left: var(--x); top: 0; bottom: 0; width: var(--gdd-part); margin-left: calc(var(--gdd-part) / -2); background: linear-gradient(var(--muro) 0 18%, transparent 18% 82%, var(--muro) 82%); }
+/* The leaf is drawn 5px below the top of its box: moved 5px, it hangs from the partition's middle. */
+.laboratorio__puerta { position: absolute; left: var(--x); top: 18%; width: 84px; height: 84px; overflow: visible; color: var(--muro); transform: translateX(5px) rotate(90deg); transform-origin: 0 0; }
+.laboratorio__puerta .cruzar__hoja { transform-origin: 0 5px; transform: rotate(0deg); }
+.laboratorio[data-estado="abre"] .laboratorio__puerta .cruzar__hoja { transform: rotate(90deg); }
+.laboratorio__agente { position: absolute; top: 50%; left: calc(var(--x) - 112px); width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: var(--ki-radius-round); background: var(--ki-surface-s0); border: 3px solid var(--rojo); }
+.laboratorio[data-estado="abre"] .laboratorio__agente { left: 90%; }
+.laboratorio__lugar { position: absolute; bottom: 8px; font-stretch: 118%; font-size: .6875rem; letter-spacing: var(--ki-typography-letter-spacing-spaced-out); text-transform: uppercase; color: var(--tinta-2); }
+.laboratorio__lugar--agente { left: 12px; }
+.laboratorio__lugar--produccion { right: 8px; }
+.laboratorio [data-resultado] { font-weight: 600; }
+@media screen {
+  .laboratorio:has(:where(ki-switch:defined)) [data-resultado] { display: none; }
+  .laboratorio[data-estado="cierra"] [data-resultado="cierra"], .laboratorio[data-estado="abre"] [data-resultado="abre"] { display: block; }
+}
+@media print {
+  .laboratorio__plano { display: none; }
+  .laboratorio__porque[hidden] { display: block; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .laboratorio__agente { transition: left 900ms var(--ki-motion-easing-out); }
+  .laboratorio__puerta .cruzar__hoja { transition: transform var(--gdd-door-swing) var(--ki-motion-easing-out); }
+}
+
+/* The map: three ways in, each numbering its stops, and the parts drawn as rooms. Until Kimen
+   registers the control, the ways stay out and the map's own words say where to start; once they
+   are in, they replace the map's own button. */
+.rutas { margin-bottom: clamp(16px, 2vw, 24px); }
+.rutas__control { display: block; max-width: 28rem; }
+.rutas__control:not(:defined) { display: none; }
+.rutas:has(:where(.rutas__control:defined)) ~ .mapa .salidas { display: none; }
+.rutas__salida { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; min-height: 52px; margin-top: 16px; }
+.rutas__ruta { display: none; margin: 0; align-items: center; gap: 12px 18px; flex-wrap: wrap; }
+.rutas[data-ruta="a"] .rutas__ruta[data-ruta="a"], .rutas[data-ruta="b"] .rutas__ruta[data-ruta="b"], .rutas[data-ruta="c"] .rutas__ruta[data-ruta="c"] { display: inline-flex; }
+.rutas__ruta span { font-size: .9375rem; color: var(--tinta-3); }
+.rutas__taller { margin: 0 0 0 auto; }
+.mapa .lectura > section { padding: 26px 0 30px; border-top: var(--gdd-part) solid var(--muro); }
+.mapa .lectura > section > h2 { margin: 0 0 12px; }
+/* The stop of the chosen way sits between the chapter's number and its name, so both read. */
+.mapa[data-ruta="a"] .mapa-lista > li[data-orden-a]::before, .mapa[data-ruta="b"] .mapa-lista > li[data-orden-b]::before, .mapa[data-ruta="c"] .mapa-lista > li[data-orden-c]::before { display: inline-grid; place-items: center; width: 1.5em; height: 1.5em; margin-right: .5em; vertical-align: .1em; border-radius: var(--ki-radius-round); background: var(--persona); color: var(--ki-surface-s0); font-size: .75rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mapa[data-ruta="a"] .mapa-lista > li[data-orden-a]::before { content: attr(data-orden-a); }
+.mapa[data-ruta="b"] .mapa-lista > li[data-orden-b]::before { content: attr(data-orden-b); }
+.mapa[data-ruta="c"] .mapa-lista > li[data-orden-c]::before { content: attr(data-orden-c); }

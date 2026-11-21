@@ -1,5 +1,5 @@
 <h1>What's new</h1>
-<p>What changes for you in each version of the skills and the layer, newest first, and whether you have to do anything when updating. Your agent's list of plugins tells you which version you have (<a href="doc:empieza#comprobar">Get started</a>), and the site's footer tells you the one these pages describe. Versions before 0.14 are in the <a href="https://github.com/MarsGotta/gdd/commits/main">repository's history</a>.</p>
+<p>Newest first. Your agent's list of plugins tells you which version you have (<a href="doc:empieza#comprobar">Get started</a>), and the site's footer tells you the one these pages describe. Versions before 0.14 are in the <a href="https://github.com/MarsGotta/gdd/commits/main">repository's history</a>.</p>
 <h2 id="actualizar">How to update</h2>
 <ol>
 <li><strong>The plugin.</strong> With your agent's commands, in a terminal (<a href="doc:las-skills#instalar">The skills</a>). Then open a new session: the one that was open stays on the earlier version.</li>
@@ -23,8 +23,10 @@
 </ul>
 <p><strong>What you have to do:</strong> as with every version, change the layer's tag in your CI. A project that's already prepared keeps its <code>AGENTS.md</code> block: if you want the new line, add it yourself between its markers. The reviewer's evidence is kept in <code>.gdd/evidence/</code>, which git ignores.</p>
 <h2 id="v0-18">0.18, November 20, 2026</h2>
-<p>The agent that writes the cases knows which proofs it owes the layer. In a fix round, it copies the proofs of the tests that haven't changed since the layer last accepted them, and runs only the rest again.</p>
-<p><strong>What you have to do:</strong> nothing.</p>
+<ul>
+<li>The agent that writes the cases knows which proofs it owes the layer. In a fix round, it copies the proofs of the tests that haven't changed since the layer last accepted them, and runs only the rest again.</li>
+</ul>
+<p><strong>What you have to do:</strong> as with every version, change the layer's tag in your CI.</p>
 <h2 id="v0-17">0.17, November 19, 2026</h2>
 <ul>
 <li>When preparing, your agent writes into the blueprint, in the command that launches the roles, the reasoning effort your sessions run with, so that no role uses the environment's default.</li>
@@ -32,20 +34,20 @@
 <li>The message asking you to approve a red brief can run to 200 words. On yellow it stays at 150.</li>
 <li>In 0.17.1, if your agent can't tell what effort its own session uses, it proposes the middle one, never a higher one, and checks the order of the levels against the provider's prices: deep costs the most and light the least.</li>
 </ul>
-<p><strong>What you have to do:</strong> nothing. In a project that's already prepared, if you want each role to carry that effort, ask your agent to review the blueprint's levels, and approve it.</p>
+<p><strong>What you have to do:</strong> as with every version, change the layer's tag in your CI. In a project that's already prepared, if you want each role to carry that effort, ask your agent to review the blueprint's levels, and approve it.</p>
 <h2 id="v0-16">0.16, November 19, 2026</h2>
 <ul>
 <li>Close arrives, with its skill, <code>gdd-close</code>. Before anyone builds, the brief says what you expect from the change, what signal will tell and where to look. A change in use waits for your verdict without holding up the next one, and your verdict is yes, not yet or no (<a href="doc:las-skills#cerrar">The skills</a>).</li>
 <li>In 0.16.1, the reviewer of a red change starts with the plain ways: come back as someone would (reload, log in again, restart), look from another part of the product at what the change used up or created, and send its entry point a value the product should work out itself. A failure that needs two faults at once waits for later, unless the brief or a zone rule asks for it.</li>
 </ul>
-<p><strong>What you have to do:</strong> a blueprint from before 0.16 has no <code>closing</code>, and with it a change that promised nothing closes when it ships. If you want it to wait the template's days, 7, and to say who gives the verdict, add <code>closing</code> to your blueprint, you or your agent, and approve it like any change to the blueprint.</p>
+<p><strong>What you have to do:</strong> as with every version, change the layer's tag in your CI. A blueprint from before 0.16 has no <code>closing</code>, and with it a change that promised nothing closes when it ships. If you want it to wait the template's days, 7, and to say who gives the verdict, add <code>closing</code> to your blueprint, you or your agent, and approve it like any change to the blueprint.</p>
 <h2 id="v0-15">0.15, November 19, 2026</h2>
 <ul>
 <li>The layer won't record a brief with a new or changed scenario that has no rule above it, no <code>@id</code> or more than one action. Scenarios you don't touch stay as they were, and a file written in Gherkin in another language isn't checked.</li>
 <li>Before asking for your yes, the layer gives your agent, from what was sealed, the rules it has to show you.</li>
 <li>The CI line your agent gives you builds the layer of your skills' version, no longer the one on GDD's main branch.</li>
 </ul>
-<p><strong>What you have to do:</strong> if your CI was set up before, switch its layer to your version's, with <code>--tag</code>. When you change an old scenario, your agent will give it its rule and its <code>@id</code>.</p>
+<p><strong>What you have to do:</strong> if your CI was set up before, switch its layer to your version's, with <code>--tag</code>. From this version on, every update asks you to change that tag. When you change an old scenario, your agent will give it its rule and its <code>@id</code>.</p>
 <h2 id="v0-14">0.14, November 19, 2026</h2>
 <ul>
 <li>Brief starts with the rules: your agent writes them above the scenarios, marks the ones it assumed itself with <code>@assumed</code> and shows them to you to approve or correct. <code>@question</code> leaves in sight a question that can wait for another change.</li>

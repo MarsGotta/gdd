@@ -1,6 +1,7 @@
 <h1>Las skills</h1>
-<p>Con las skills instaladas y tu plano aprobado, como cuenta <a href="doc:empieza">Empieza</a>, cada cambio sigue el mismo camino. Lo que sigue es el día a día: qué dices tú en cada momento, qué te llega y qué haces cuando algo se para.</p>
-<p>Una skill es un archivo de instrucciones que tu agente carga cuando le hace falta. Las de GDD usan lo que tu proyecto ya tiene, sus tests, su linter, su CI y git. Lo único que traen para ejecutar es <a href="#capa">la capa</a>, un comando pequeño que lleva la cuenta de cada cambio, y un par de guiones que te ofrecen al preparar y que, si los aceptas, pasan a ser de tu proyecto. Hay una de entrada, <code>gdd</code>, que reparte el trabajo, y siete más, una por momento o papel.</p>
+<p>Con las skills instaladas y tu plano aprobado, como cuenta <a href="doc:empieza">Empieza</a>, cada cambio sigue el mismo camino. Lo que sigue es el día a día, momento a momento: qué dices tú, qué te llega y qué haces cuando algo se para.</p>
+<p>Una skill es un archivo de instrucciones que tu agente carga cuando le hace falta. Las de GDD usan lo que tu proyecto ya tiene, sus tests, su linter, su CI y git.</p>
+<p>Lo único que traen para ejecutar es <a href="#capa">la capa</a>, un comando pequeño que lleva la cuenta de cada cambio, y un par de guiones que te ofrecen al preparar y que, si los aceptas, pasan a ser de tu proyecto. Hay una de entrada, <code>gdd</code>, que reparte el trabajo, y siete más, una por momento o papel.</p>
 <h2 id="las-ocho">Las ocho</h2>
 <table>
 <thead><tr><th>Skill</th><th>Quién la carga</th><th>Qué deja</th></tr></thead>
@@ -8,11 +9,11 @@
 <tr><td><code>gdd</code></td><td>El orquestador. Se carga sola cuando pides un cambio</td><td>Qué toca ahora, y a quién se lanza.</td></tr>
 <tr><td><code>gdd-prepare</code></td><td>El orquestador, contigo</td><td>El plano, con las puertas que le hacen falta a tu proyecto, y la constitución.</td></tr>
 <tr><td><code>gdd-brief</code></td><td>El orquestador, en cada cambio, también en verde</td><td>El color del cambio y, en amarillo y rojo, las reglas de lo que cambia, sus escenarios y el riesgo previsto.</td></tr>
-<tr><td><code>gdd-checks</code></td><td>Otro agente, nunca el que construye</td><td>Las comprobaciones de serie y los casos de cada cambio, vistos fallar por la razón correcta.</td></tr>
+<tr><td><code>gdd-checks</code></td><td>Otro agente, nunca el que construye</td><td>Al preparar, las comprobaciones de serie. En cada cambio, sus casos, vistos fallar por la razón correcta.</td></tr>
 <tr><td><code>gdd-build</code></td><td>El agente que pasa la puerta</td><td>El cambio, y los hechos que lo prueban.</td></tr>
-<tr><td><code>gdd-review</code></td><td>El vigilante, con el contexto limpio</td><td>En rojo, lo que le falta al encargo antes de construir. Después, su veredicto y el riesgo recalculado.</td></tr>
+<tr><td><code>gdd-review</code></td><td>El vigilante, con el contexto limpio</td><td>En rojo, lo que le falta al encargo antes de construir. Después, su veredicto y el color recalculado, que solo puede subir.</td></tr>
 <tr><td><code>gdd-close</code></td><td>El orquestador, cuando preguntas por un cambio que ya está en uso</td><td>Lo que se ve, al lado de lo que el encargo esperaba, y tu veredicto en el registro.</td></tr>
-<tr><td><code>gdd-harden</code></td><td>El orquestador, contigo, cuando algo se cuela o una puerta deja de aportar</td><td>La grieta y la comprobación que la habría cazado, o la propuesta de retirar la que sobra.</td></tr>
+<tr><td><code>gdd-harden</code></td><td>El orquestador, contigo, cuando algo se cuela o una puerta deja de aportar</td><td>La grieta y la comprobación que la habría cazado, o la propuesta de aflojar o retirar la que sobra.</td></tr>
 </tbody>
 </table>
 <p>Quien escribe los casos, quien construye y quien revisa trabajan cada uno en un agente distinto, que empieza sin la conversación de los otros: recibe lo que dejaron escrito, no cómo llegaron a ello. Así el vigilante juzga el cambio que tiene delante, sin haber oído cómo se hizo (<a href="doc:las-piezas">Las piezas y los roles</a>).</p>
@@ -27,30 +28,51 @@
 </tbody>
 </table>
 <p>Una sesión que ya estaba abierta no carga la versión nueva: abre otra después de actualizar.</p>
-<p>Si prefieres tenerlas dentro de tu proyecto, copia las ocho carpetas cuyo nombre empieza por <code>gdd</code> del <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repositorio</a> a <code>.claude/skills/</code> en Claude Code o a <code>.agents/skills/</code> en Codex. En Claude Code copia también los subagentes de <a href="https://github.com/MarsGotta/gdd/tree/main/skills/adapters/claude-code/agents">adapters/claude-code/agents/</a> a <code>.claude/agents/</code>. Copiadas a mano no traen la capa: compílala desde una copia del repositorio con <code>sh engine/build.sh</code>, y copia el binario que te indica a <code>.gdd/gdd</code> en tu proyecto, con <code>.gdd/</code> en su <code>.gitignore</code>.</p>
+<p>Si prefieres tenerlas dentro de tu proyecto, copia las ocho carpetas cuyo nombre empieza por <code>gdd</code> del <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repositorio</a> a <code>.claude/skills/</code> en Claude Code o a <code>.agents/skills/</code> en Codex. En Claude Code copia también los subagentes de <a href="https://github.com/MarsGotta/gdd/tree/main/skills/adapters/claude-code/agents">adapters/claude-code/agents/</a> a <code>.claude/agents/</code>.</p>
+<p>Copiadas a mano no traen la capa: compílala desde una copia del repositorio con <code>sh engine/build.sh</code>, y copia el binario que te indica a <code>.gdd/gdd</code> en tu proyecto, con <code>.gdd/</code> en su <code>.gitignore</code>.</p>
 <h2 id="capa">La capa</h2>
 <p>Con las skills viene <code>gdd</code>, un comando pequeño al que llamo la capa. Lleva el orden de cada cambio, cuenta sus límites y escribe su registro, para que tu agente no lleve esa cuenta de memoria. Si el agente intenta un paso fuera de orden, la capa se niega y le dice cuál toca.</p>
-<p>Viene como código fuente, en la carpeta <code>engine/</code> del plugin. La primera vez que tu proyecto la necesita, tu agente la compila y la deja en <code>.gdd/gdd</code>, que git ignora. Para compilarla hace falta <a href="https://rustup.rs">Rust</a> 1.89 o posterior: si no lo tienes, tu agente te lo dice en una línea y espera. La primera vez descarga de crates.io lo que necesita, así que esa vez le hace falta red. Funciona en macOS y en Linux; en Windows no lo ha probado nadie todavía. Tu CI compila el mismo comando, para comprobar el registro de cada cambio fuera del alcance de los agentes.</p>
+<p>Viene como código fuente, en la carpeta <code>engine/</code> del plugin. La primera vez que tu proyecto la necesita, tu agente la compila y la deja en <code>.gdd/gdd</code>, que git ignora.</p>
+<p>Para compilarla hace falta <a href="https://rustup.rs">Rust</a> 1.89 o posterior: si no lo tienes, tu agente te lo dice en una línea y espera. La primera vez descarga de crates.io lo que necesita, así que esa vez le hace falta red. Funciona en macOS y en Linux; en Windows no lo ha probado nadie todavía.</p>
+<p>Tu CI compila el mismo comando, para comprobar el registro de cada cambio fuera del alcance de los agentes.</p>
 <p>Tú no tienes que usarla, pero hay tres órdenes que te sirven, desde la carpeta de tu proyecto:</p>
 <pre data-copiar><code data-fuente="capa-ordenes.txt"></code></pre>
-<p>La primera te dice qué toca ahora en tu proyecto: lo que está en marcha, lo siguiente de la lista y los cambios en uso que esperan tu veredicto. La segunda enumera cada pregunta que te espera, de la más antigua a la más nueva, con el tiempo que lleva esperando. La tercera cuenta cómo fueron tus cambios: cómo acabaron, cuánto tardó cada uno sin contar lo que te esperó a ti, cuántas veces pasaron las puertas y el vigilante a la primera, y qué cuesta cada comprobación. Estas y otras, con un ejemplo de lo que contestan, están en <a href="doc:las-ordenes">Las órdenes de la capa</a>.</p>
+<dl>
+<dt><code>.gdd/gdd next</code></dt>
+<dd>Qué toca ahora en tu proyecto: lo que está en marcha, lo siguiente de la lista y los cambios en uso que esperan tu veredicto.</dd>
+<dt><code>.gdd/gdd waiting</code></dt>
+<dd>Cada pregunta que te espera, de la más antigua a la más nueva, con el tiempo que lleva esperando.</dd>
+<dt><code>.gdd/gdd metrics --all --summary</code></dt>
+<dd>Cómo fueron tus cambios: cómo acabaron, cuánto tardó cada uno sin contar lo que te esperó a ti, cuántas veces pasaron las puertas y el vigilante a la primera, y qué cuesta cada comprobación.</dd>
+</dl>
+<p>Estas y otras, con un ejemplo de lo que contestan, están en <a href="doc:las-ordenes">Las órdenes de la capa</a>.</p>
 <p>La capa no es un motor. Mientras la ejecuta un agente, está a su alcance, y lo que la mantiene honrada es tu CI.</p>
-<h2 id="empezar">Preparar, más despacio</h2>
-<p>Preparar es la primera conversación, y solo vuelve cuando el plano se queda corto. La versión corta está en <a href="doc:empieza#preparar">Empieza</a>; aquí va lo que pasa en ella. Pide el modelo más capaz de tu agente: si no estás en él, te lo dice antes de empezar.</p>
+<h2 id="preparar">Preparar: el plano y sus comprobaciones</h2>
+<p>Preparar es la primera conversación, y solo vuelve cuando el plano se queda corto: cuando una puerta falta, sobra o está mal. La versión corta está en <a href="doc:empieza#preparar">Empieza</a>; aquí va lo que pasa en ella.</p>
+<p>Pide el modelo más capaz de tu agente: si no estás en él, te lo dice antes de empezar. Tiene dos partes: primero se define el plano, y después se construye lo que define.</p>
+<h3 id="definir">Definir el plano</h3>
 <ol>
 <li>En un proyecto nuevo, o si le dejas a él las decisiones, se documenta antes de proponerte nada, porque las herramientas y las reglas de un sector cambian más deprisa que la memoria de un modelo. Busca qué tiene que proteger un proyecto como el tuyo, qué pide su sector y qué herramientas están al día para lo que usas, y guarda una copia de cada fuente. En lo que te propone, separa lo que sale de una fuente de lo que pone él por defecto.</li>
 <li>Te propone las zonas de tu proyecto y las puertas que le hacen falta, y tú corriges lo que no encaje. Cada puerta queda escrita como una feature corta en Gherkin: qué exige a cada color y qué rechaza. Si tu proyecto ya tiene historial, antes de que apruebes pasa las zonas por tus últimos commits y te dice cuántos habrían salido de cada color. Solo pregunta lo que cambia una zona o una puerta: dinero, cuentas y permisos, datos personales, lo que no se puede deshacer.</li>
 <li>Mira qué agentes tienes instalados y qué modelos ofrece cada uno, y te propone cuál hace el trabajo ligero, cuál el normal y cuál el profundo, y cuál hace de vigilante. Decides tú, y antes de darlo por bueno comprueba que cada uno arranca.</li>
 <li>Prepara las protecciones contigo y las prueba. Él escribe qué archivos piden tu revisión, y lo que hay que aplicar en tu plataforma lo aplicas tú, también que tu CI ejecute la capa en cada cambio. Después intenta cuatro cosas desde el entorno donde trabajará el agente que construye, subir a la rama principal entre ellas. Si alguna le sale bien, tu plano lo apunta, y que el agente no toque lo que lo juzga se queda en norma.</li>
 <li>El plano lo apruebas tú, o tu equipo si trabajas con uno: con un commit o una pull request de una persona, nunca de un agente, o con tu sí en la conversación si no tienes plataforma. Te lo pide con un mensaje corto: qué archivos leer y, antes de que digas que sí, lo que todavía no protege nada o lo que no ha podido confirmar.</li>
-<li>Otro agente monta las comprobaciones de serie, una vez para todo el proyecto, y un vigilante intenta engañarlas y mira que el plano pide lo que dice cada puerta. Si una comprobación la piden unos colores y otros no, como las pruebas de mutación si las dejas para lo rojo, juzga solo lo que cada cambio añade o modifica. Y si una pide llegar a una cifra, te propone empezar por la que da su herramienta o la que ya saca tu código, no por la más alta. Una cifra inalcanzable no hace la puerta más exigente, la deja cerrada. Ningún cambio empieza hasta que están en la rama principal.</li>
 </ol>
-<h2 id="pedir">Pedir un cambio</h2>
+<h3 id="construir">Construir sus comprobaciones</h3>
+<p>Con el plano aprobado, construyes tú, o tu equipo, las comprobaciones que nombra, con tus agentes: otro agente monta las de serie, una vez para todo el proyecto, y un vigilante intenta engañarlas y mira que el plano pide lo que dice cada puerta.</p>
+<p>Si una comprobación la piden unos colores y otros no, como las pruebas de mutación si las dejas para lo rojo, juzga solo lo que cada cambio añade o modifica.</p>
+<p>Y si una pide llegar a una cifra, te propone empezar por la que da su herramienta o la que ya saca tu código, no por la más alta. Una cifra inalcanzable no hace la puerta más exigente, la deja cerrada.</p>
+<p>Ningún cambio empieza hasta que esas comprobaciones están en la rama principal.</p>
+<h2 id="encargar">Encargar: pedir y aprobar</h2>
+<h3 id="pedir">Pedir un cambio</h3>
 <p>Pídelo con tus palabras, sin nombrar ninguna skill: en un proyecto con plano, <code>gdd</code> se carga sola.</p>
 <pre data-copiar><code>Añade un filtro por talla al catálogo</code></pre>
-<p>Tu agente le da al cambio el color de lo más delicado que toca. Si toca algo que ninguna zona cubre, lo juzga en ese cambio, te dice por qué y te pregunta si no lo tiene claro. Si pides varias cosas que podrías usar por separado, antes de escribir nada te propone un orden: una línea por parte, con lo que podrías hacer con ella y más o menos cuánto tardaría. Sin tu sí a las partes, lo toma todo como un solo cambio.</p>
-<h2 id="aprobar">Aprobar lo que debe pasar</h2>
-<p>En verde no hay nada que aprobar: no hay encargo ni escenarios, y el cambio pasa las comprobaciones que ya existen. En amarillo y en rojo, tu agente escribe primero las reglas de lo que cambia, en el archivo de su capacidad dentro de <code>features/</code>, y debajo los escenarios que las comprueban, también los casos malos. En rojo, y en amarillo si el cambio altera datos de otra zona, un vigilante lee el encargo antes de que te llegue y dice lo que le falta. Si tu agente descarta algo de lo que dice, cita la línea que lo responde.</p>
+<p>Tu agente le da al cambio el color de lo más delicado que toca. Si toca algo que ninguna zona cubre, lo juzga en ese cambio, te dice por qué y te pregunta si no lo tiene claro.</p>
+<p>Si pides varias cosas que podrías usar por separado, antes de escribir nada te propone un orden: una línea por parte, con lo que podrías hacer con ella y más o menos cuánto tardaría. Sin tu sí a las partes, lo toma todo como un solo cambio.</p>
+<h3 id="aprobar">Aprobar lo que debe pasar</h3>
+<p>En verde no hay nada que aprobar: no hay encargo ni escenarios, y el cambio pasa las comprobaciones que ya existen.</p>
+<p>En amarillo y en rojo, tu agente escribe primero las reglas de lo que cambia, en el archivo de su capacidad dentro de <code>features/</code>, y debajo los escenarios que las comprueban, también los casos malos.</p>
+<p>En rojo, y en amarillo si el cambio altera datos de otra zona, un vigilante lee el encargo antes de que te llegue y dice lo que le falta. Si tu agente descarta algo de lo que dice, cita la línea que lo responde.</p>
 <p>Después, si tu plano pide tu aprobación, como hace la plantilla en amarillo y en rojo, te llega un mensaje de menos de 150 palabras, o 200 en rojo, que acaba en una pregunta que se contesta con un sí. Trae:</p>
 <ul>
 <li>cada regla nueva o cambiada, en su línea;</li>
@@ -60,26 +82,37 @@
 <li>las decisiones técnicas que te afectan;</li>
 <li>en rojo, además, las reglas de tu producto que toca y hasta tres cosas que deja fuera.</li>
 </ul>
-<p>Di que sí o corrige una regla. Puedes aprobarlo en la conversación, con un commit tuyo o, mejor en rojo, en una pull request desde <code>gdd-seal/&lt;id&gt;</code>, que apruebas y nadie fusiona: el encargo llega a la rama principal con el cambio. Tu aprobación vale mientras no cambie lo que debe pasar.</p>
-<h2 id="hasta-que-entra">Hasta que entra</h2>
+<p>Di que sí o corrige una regla. Puedes aprobarlo en la conversación, con un commit tuyo o, mejor en rojo, en una pull request desde <code>gdd-seal/&lt;id&gt;</code>, que apruebas y nadie fusiona: el encargo llega a la rama principal con el cambio.</p>
+<p>Tu aprobación vale mientras no cambie lo que debe pasar.</p>
+<h2 id="ejecutar">Ejecutar: hasta que entra</h2>
+<h3 id="hasta-que-entra">Quién hace qué</h3>
 <p>Aquí no haces nada, salvo que algo te necesite. Trabajan tres agentes distintos, y entre ellos la capa:</p>
 <ol>
 <li><strong>Los casos.</strong> Otro agente, nunca el que construye, escribe un test por escenario, ve fallar cada uno por la razón correcta y los sella en <code>gdd-seal/&lt;id&gt;</code>. En rojo, además, ve pasar cada uno y lo rompe una vez a propósito.</li>
 <li><strong>La construcción.</strong> El que construye trabaja en una rama suya, con el encargo y el sello. Nunca recibe el registro ni la conversación en que se hicieron sus casos.</li>
 <li><strong>Las puertas.</strong> La capa ejecuta las comprobaciones sobre el commit exacto del cambio, fuera de la copia del que construye: en tu CI o en una copia aparte, que en grado norma sigue a su alcance, y tu agente te lo dice. Si una falla, el cambio vuelve con la orden, su código de salida y sus últimas líneas, y se arregla en otra ronda, mientras queden.</li>
-<li><strong>El vigilante.</strong> Un agente que no ha visto nada de lo anterior calcula otra vez el color con lo que de verdad se tocó: solo puede subir, y si sube, el cambio vuelve al encargo. En verde mira el color y el sello. En amarillo lee el cambio contra su encargo y mira si los tests sellados aprietan lo bastante. En rojo, además, lo ejecuta e intenta hacerlo fallar. Su veredicto es <code>pass</code>, <code>fix</code> o <code>stop</code>. Cada fallo que pide arreglar lleva su cita y, en rojo, la orden que lo reproduce. En rojo, también su <code>pass</code> dice lo que ejecutó. Si falta algo, la capa se lo devuelve.</li>
+<li><strong>El vigilante.</strong> Un agente que no ha visto nada de lo anterior calcula otra vez el color con lo que de verdad se tocó: solo puede subir, y si sube, el cambio vuelve al encargo. En verde mira el color y el sello. En amarillo lee el cambio contra su encargo y mira si los tests sellados aprietan lo bastante. En rojo, además, lo ejecuta e intenta hacerlo fallar.</li>
 </ol>
-<p>Con todo pasado, el cambio se pone al día con tu rama principal y las comprobaciones se ejecutan otra vez. En rojo, con la plantilla, revisas tú el cambio al final, en la pull request de tu plataforma, con las pruebas que te deja el vigilante: capturas, un vídeo corto o la salida de antes y la de después. Ningún agente aprueba nada.</p>
+<p>El veredicto del vigilante es <code>pass</code>, <code>fix</code> o <code>stop</code>. Cada fallo que pide arreglar lleva su cita y, en rojo, la orden que lo reproduce. En rojo, también su <code>pass</code> dice lo que ejecutó. Si falta algo, la capa se lo devuelve.</p>
+<p>Con todo pasado, el cambio se pone al día con tu rama principal y las comprobaciones se ejecutan otra vez.</p>
+<p>En rojo, con la plantilla, revisas tú el cambio al final, en la pull request de tu plataforma, con las pruebas que te deja el vigilante: capturas, un vídeo corto o la salida de antes y la de después. Ningún agente aprueba nada.</p>
 <p>Cuando está dentro te llega una línea por puerta, como en <a href="doc:empieza#puertas">Empieza</a>, y en su propia línea cada decisión de producto que tomó el que construye, para que la corrijas si no es la tuya.</p>
-<h2 id="cuando-te-necesita">Cuando te necesita</h2>
+<h3 id="cuando-te-necesita">Cuando te necesita</h3>
 <p>Mientras trabaja, te habla de tu producto y no del método, y en pocas palabras: una línea por puerta, pasada o no, y el detalle solo cuando algo falla, cuando tienes que decidir o cuando se lo pides. Si necesita algo de ti, te pregunta una sola cosa, con lo que haría él, para que te baste con un sí.</p>
 <p>Si le dices que decida él, decide cómo se hace el trabajo y deja de preguntarte por eso. Lo que sigue siendo tuyo, o de tu equipo, es aprobar el plano y lo que debe pasar, cualquier cosa que afloje una comprobación y lo que no se puede deshacer.</p>
-<p>Así que, aunque le hayas dicho que decida él, no apunta como deuda una comprobación que ya falla sin el cambio, ni la aparta en cuarentena, porque eso es aflojarla. Tampoco construye nada mientras siga fallando, porque ningún cambio la pasaría. Te propone una salida, más o menos así: "Tu arreglo del pie de página está escrito, pero aún no ha entrado, porque un test del texto del carrito ya fallaba antes de que yo tocara nada. Lo arreglaría primero, por separado, y después entrarían los dos. ¿Te parece bien?"</p>
+<p>Así que, aunque le hayas dicho que decida él, no apunta como deuda una comprobación que ya falla sin el cambio, ni la aparta en cuarentena, porque eso es aflojarla. Tampoco construye nada mientras siga fallando, porque ningún cambio la pasaría. Te propone una salida, más o menos así:</p>
+<blockquote>
+<p>Tu arreglo del pie de página está escrito, pero aún no ha entrado, porque un test del texto del carrito ya fallaba antes de que yo tocara nada. Lo arreglaría primero, por separado, y después entrarían los dos. ¿Te parece bien?</p>
+</blockquote>
+<h3 id="cuando-se-para">Cuando se para</h3>
+<p>Casi siempre tu agente sigue solo y te cuenta en una línea por qué se paró. Qué significa cada cosa que puedes ver, y qué haces tú, está síntoma a síntoma en <a href="doc:cuando-se-para">Cuando se para</a>.</p>
+<p>Nada se arregla aflojando una comprobación: cuando una parece mal, solo la corrige quien la escribió o una persona, nunca el agente que tiene que pasarla.</p>
 <h2 id="cerrar">Cerrar: si sirvió</h2>
-<p>Un cambio no está cerrado cuando entra, sino cuando alguien ha mirado si sirvió (<a href="doc:los-momentos#cerrar">Los cinco momentos</a>). El encargo lo dejó escrito antes de que nadie construyera: qué esperabas que cambiara para quien lo usa, con qué señal se sabrá y dónde se mirará. Cerrar nunca empieza solo, y un cambio en uso no frena el siguiente.</p>
-<p><code>.gdd/gdd next</code> te enseña los cambios en uso que esperan tu veredicto, con lo que se esperaba de cada uno. Cuando quieras mirar uno, díselo a tu agente:</p>
+<p>Un cambio no está cerrado cuando entra, sino cuando alguien ha mirado si sirvió (<a href="doc:los-momentos#cerrar">Los cinco momentos</a>). El encargo lo dejó escrito antes de que nadie construyera: qué esperabas que cambiara para quien lo usa, con qué señal se sabrá y dónde se mirará.</p>
+<p>Cerrar nunca empieza solo, y un cambio en uso no frena el siguiente. <code>.gdd/gdd next</code> te enseña los cambios en uso que esperan tu veredicto, con lo que se esperaba de cada uno. Cuando quieras mirar uno, díselo a tu agente:</p>
 <pre data-copiar><code>¿Ha servido el filtro por talla?</code></pre>
-<p>Tu agente va al sitio que dijo el encargo y reúne lo que se ve, cada dato con su fuente y su fecha, nunca del informe del que construyó ni de los tests del propio cambio. Si no llega a ese sitio, te lo dice y miras tú. Después lo pone al lado de lo que esperabas y te pregunta, sin proponerte la respuesta. El veredicto es tuyo, o de quien diga tu plano, aunque le hayas dicho que decida él:</p>
+<p>Tu agente va al sitio que dijo el encargo y reúne lo que se ve, cada dato con su fuente y su fecha, nunca del informe del que construyó ni de los tests del propio cambio. Si no llega a ese sitio, te lo dice y miras tú.</p>
+<p>Después lo pone al lado de lo que esperabas y te pregunta, sin proponerte la respuesta. El veredicto es tuyo, o de quien diga tu plano, aunque le hayas dicho que decida él:</p>
 <table>
 <thead><tr><th>Veredicto</th><th>Qué pasa</th></tr></thead>
 <tbody>
@@ -90,8 +123,10 @@
 </table>
 <p>Lo que no prometía nada a quien usa tu producto, como un cambio verde, se cierra solo cuando pasan sin nada en su contra los días que dice tu plano en <code>closing</code>, 7 en la plantilla.</p>
 <h2 id="blindar">Blindar: una comprobación más, o una menos</h2>
-<p>Blindar llega en dos ocasiones: cuando algo pasa todas las puertas, o se repite, y cuando una puerta deja de aportar. Las dos cosas pesan lo mismo. Nunca empieza solo: un cambio deja como mucho una propuesta en la lista, que espera a que la cojas entre cambios.</p>
-<p><strong>Cuando algo se cuela.</strong> Arreglarlo es un cambio normal. Blindar es la otra mitad: que lo que habría hecho falta para cazarlo se quede como comprobación. Dile a tu agente qué se coló y dónde lo viste, o qué se repite:</p>
+<p>Blindar llega en dos ocasiones: cuando algo pasa todas las puertas, o se repite, y cuando una puerta deja de aportar. Las dos cosas pesan lo mismo.</p>
+<p>Nunca empieza solo: un cambio deja como mucho una propuesta en la lista, que espera a que la cojas entre cambios.</p>
+<h3 id="se-cuela">Cuando algo se cuela</h3>
+<p>Arreglarlo es un cambio normal. Blindar es la otra mitad: que lo que habría hecho falta para cazarlo se quede como comprobación. Dile a tu agente qué se coló y dónde lo viste, o qué se repite:</p>
 <pre data-copiar><code>Se ha colado un código de descuento caducado, lo he visto en los pedidos de ayer</code></pre>
 <ol>
 <li>Alguien que conoce esa parte del producto confirma que el fallo es real y que estaba ahí.</li>
@@ -100,12 +135,22 @@
 <li>Apruebas el cambio del plano y de sus puertas, tú o tu equipo, con un commit o una pull request de una persona.</li>
 <li>Otro agente monta la comprobación, y un vigilante intenta engañarla antes de que cuente.</li>
 </ol>
-<p><strong>Cuando una puerta sobra.</strong> Dile cuál te estorba, y tu agente lee en los registros qué ha cazado y cuánto ha costado. Si ya no aporta, te propone aflojarla o retirarla con esas cifras, y lo apruebas tú o tu equipo. Un modelo nuevo no es razón para quitar una comprobación, porque juzga tu producto y no el modelo.</p>
-<h2 id="cuando-se-para">Cuando se para</h2>
-<p>Casi siempre tu agente sigue solo y te cuenta en una línea por qué se paró. Qué significa cada cosa que puedes ver, y qué haces tú, está síntoma a síntoma en <a href="doc:cuando-se-para">Cuando se para</a>. Nada se arregla aflojando una comprobación: cuando una parece mal, solo la corrige quien la escribió o una persona, nunca el agente que tiene que pasarla.</p>
+<h3 id="sobra">Cuando una puerta sobra</h3>
+<p>Dile cuál te estorba, y tu agente lee en los registros qué ha cazado y cuánto ha costado. Si ya no aporta, te propone aflojarla o retirarla con esas cifras, y lo apruebas tú o tu equipo.</p>
+<p>Un modelo nuevo no es razón para quitar una comprobación, porque juzga tu producto y no el modelo.</p>
 <h2 id="repositorio">Qué dejan en tu repositorio</h2>
 <p>Todo queda en archivos que puedes leer y que se entienden sin las skills: el plano y sus puertas, la constitución, el encargo de cada cambio con sus escenarios y su registro. Cada uno, con quién lo escribe y qué haces tú con él, está en <a href="doc:los-archivos">Lo que deja en tu repositorio</a>.</p>
 <h2 id="limites">Lo que no garantizan</h2>
-<p>Lo que no te dan es una garantía. Sin un motor, que el agente no toque lo que lo juzga es una norma: las skills se lo dicen y después comprueban que no lo haya hecho, pero nada se lo impide. La capa hace que el orden y el registro no dependan de la memoria del agente, pero no cambia eso. Con las ramas protegidas y los permisos de tu plataforma consigues buena parte, y tu plano dice en cuál de los tres grados estás, norma, plataforma o motor (<a href="doc:como-se-engana-una-puerta#grados">Cómo se engaña una puerta</a>). La garantía completa solo la da un motor, y lo que falta sin él está en <a href="doc:el-motor">El motor</a>.</p>
+<p>Lo que no te dan es una garantía. Sin un motor, que el agente no toque lo que lo juzga es una norma: las skills se lo dicen y después comprueban que no lo haya hecho, pero nada se lo impide. La capa hace que el orden y el registro no dependan de la memoria del agente, pero no cambia eso.</p>
+<p>Con las ramas protegidas y los permisos de tu plataforma consigues buena parte, y tu plano dice en cuál de los tres grados estás, norma, plataforma o motor (<a href="doc:como-se-engana-una-puerta#grados">Cómo se engaña una puerta</a>). La garantía completa solo la da un motor, y lo que falta sin él está en <a href="doc:el-motor">El motor</a>.</p>
 <p>La misma guía, en inglés y con diagramas, está en el <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">repositorio</a>.</p>
 <p class="sigue">Si quieres ver qué hay debajo de las skills, o montar una puerta sin ellas, está en <a href="doc:empieza-hoy">Una puerta a mano</a>.</p>
+<aside data-cruzar>
+<p>¿Quién escribe los casos de un cambio?</p>
+<ul>
+<li data-bien>Otro agente, nunca el que construye, que los sella antes de que se construya nada.</li>
+<li>El agente que construye, que es quien mejor sabe qué va a hacer.</li>
+</ul>
+<p data-si="bien">Eso es. Si el que construye escribiera sus propios casos, podría escribir justo los que su cambio pasa; por eso cada papel trabaja en un agente distinto, sin la conversación de los otros.</p>
+<p data-si="mal">No. El que construye recibe los casos ya sellados y no puede tocarlos: los escribe otro agente, y un tercero revisa el cambio con el contexto limpio.</p>
+</aside>

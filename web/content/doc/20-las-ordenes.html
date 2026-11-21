@@ -1,9 +1,27 @@
 <h1>Las órdenes de la capa</h1>
-<p>La capa lleva el orden y el registro de cada cambio (<a href="doc:las-skills#capa">Las skills</a>), y casi todas sus órdenes las ejecuta tu agente. Estas son las que te sirven a ti, desde la carpeta de tu proyecto. No cambian nada: solo apuntan la llamada en el diario de la capa, en <code>gdd/log/</code>, y ninguna toca tu código ni lo que se aprobó.</p>
+<p>La capa lleva el orden y el registro de cada cambio (<a href="doc:las-skills#capa">Las skills</a>), y casi todas sus órdenes las ejecuta tu agente. Estas son las que te sirven a ti, desde la carpeta de tu proyecto.</p>
+<p>No cambian nada: solo apuntan la llamada en el diario de la capa, en <code>gdd/log/</code>, y ninguna toca tu código ni lo que se aprobó.</p>
+<table>
+<thead><tr><th>Orden</th><th>Qué te dice</th></tr></thead>
+<tbody>
+<tr><td><code>.gdd/gdd next</code></td><td>Cómo está el proyecto y qué toca ahora.</td></tr>
+<tr><td><code>.gdd/gdd next &lt;id&gt;</code></td><td>El siguiente paso de un cambio.</td></tr>
+<tr><td><code>.gdd/gdd waiting</code></td><td>Las preguntas que esperan a una persona.</td></tr>
+<tr><td><code>.gdd/gdd color --paths &lt;rutas&gt;</code></td><td>El color que tendría un cambio por las rutas que va a tocar.</td></tr>
+<tr><td><code>.gdd/gdd color &lt;id&gt;</code></td><td>El color de lo que de verdad tocó un cambio.</td></tr>
+<tr><td><code>.gdd/gdd limits &lt;id&gt;</code></td><td>Cuánto lleva gastado un cambio de cada límite.</td></tr>
+<tr><td><code>.gdd/gdd metrics --all --summary</code></td><td>Cómo fueron tus cambios.</td></tr>
+<tr><td><code>.gdd/gdd zones</code></td><td>Si tus zonas cubren lo que crees.</td></tr>
+<tr><td><code>.gdd/gdd verify --all</code></td><td>Si los registros están enteros.</td></tr>
+<tr><td><code>.gdd/gdd --version</code></td><td>Qué versión de la capa tienes.</td></tr>
+</tbody>
+</table>
 <p>Contestan en inglés. Su última línea, que empieza por <code>gdd {</code>, repite lo mismo para los agentes, y en los ejemplos no está. Los ejemplos salen de una tienda de prueba.</p>
 <h2 id="next">Qué toca ahora: <code>next</code></h2>
 <pre data-copiar><code>.gdd/gdd next</code></pre>
-<p>Te dice cómo está el proyecto: si el plano está aprobado, lo que está en marcha, lo que espera a una persona, los cambios en uso que esperan tu veredicto y lo siguiente de la lista. Con el id de un cambio, <code>.gdd/gdd next &lt;id&gt;</code>, te da su siguiente paso y, si ya pasó todas sus puertas, cuántos minutos lleva así, sin tus esperas. En una tienda con un cambio en uso:</p>
+<p>Te dice cómo está el proyecto: si el plano está aprobado, lo que está en marcha, lo que espera a una persona, los cambios en uso que esperan tu veredicto y lo siguiente de la lista.</p>
+<p>Con el id de un cambio, <code>.gdd/gdd next &lt;id&gt;</code>, te da su siguiente paso y, si ya pasó todas sus puertas, cuántos minutos lleva así, sin tus esperas. Si el cambio espera tu revisión, te cita las pruebas que te deja el vigilante.</p>
+<p>En una tienda con un cambio en uso:</p>
 <pre><code>the standing checks are set up
 in use, waiting for a verdict: cart, 16 days 23 hours; expected: one cart in five holds two or more products
 next in the backlog: catalog-pages (yellow, todo): The catalog in pages</code></pre>
@@ -57,3 +75,12 @@ the zone judges's :(glob).github/** matches no tracked file: a path that doesn't
 <p>La versión de la capa que hay en tu proyecto. Tiene que ser la de tus skills: si es más vieja, tu agente la compila otra vez.</p>
 <pre><code>gdd {{skills}}</code></pre>
 <p class="sigue">Lo que le pide tu plano a cada color, con los valores de la plantilla, está en <a href="doc:los-colores">Qué pide cada color</a>.</p>
+<aside data-cruzar>
+<p>Ejecutas <code>.gdd/gdd next &lt;id&gt;</code> sobre un cambio a medias. ¿Lo hace avanzar?</p>
+<ul>
+<li>Sí: da el siguiente paso del cambio y lo apunta en su registro.</li>
+<li data-bien>No: te dice cuál es el siguiente paso y la orden que lo da, sin cambiar nada.</li>
+</ul>
+<p data-si="bien">Eso es. Estas órdenes consultan: solo apuntan la llamada en el diario de la capa. El paso lo da tu agente, con la orden que le nombra <code>next</code>.</p>
+<p data-si="mal">No avanza nada. <code>next</code> te dice el siguiente paso y la orden que lo da, y solo apunta la llamada en el diario de la capa. Ninguna de estas órdenes toca tu código ni lo que se aprobó.</p>
+</aside>

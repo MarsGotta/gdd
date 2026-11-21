@@ -113,6 +113,9 @@ export const DOCS = {
   documentacion: doc('doc/00-documentacion.html',
     { ruta: '/documentacion/', menu: 'Documentación', titulo: 'Documentación de Gate-Driven Development (GDD)', descripcion: 'Qué problema resuelve GDD, una tienda online paso a paso, las garantías y lo que necesitas para empezar hoy.' },
     { ruta: '/en/docs/', menu: 'Documentation', titulo: 'Gate-Driven Development (GDD) documentation', descripcion: 'The problem GDD solves, an online shop step by step, the guarantees and what you need to start today.' }),
+  taller: doc('taller.html',
+    { ruta: '/documentacion/taller/', menu: 'Taller', titulo: 'Taller: ¿esta puerta vale?', descripcion: 'Quita una de las cuatro preguntas que hacen válida una puerta y mira por dónde se cuela el error; después, decide si valen seis puertas.' },
+    { ruta: '/en/docs/workshop/', menu: 'Workshop', titulo: 'Workshop: does this gate hold?', descripcion: 'Take away one of the four questions that make a gate valid and see where the error slips through; then decide whether six gates hold.' }),
   articulo: doc('articulo.html',
     { ruta: '/articulo/', menu: 'Artículo', titulo: 'A la IA no se la convence con palabras: se le ponen puertas', descripcion: 'Por qué nació GDD: la historia de una frustración con los agentes de IA y lo que encontré al investigar.' },
     { ruta: '/en/article/', menu: 'Article', titulo: "You don't persuade AI with words: you put gates on it", descripcion: 'Why GDD was born: the story of a frustration with AI agents, and what I found when I looked into it.' }),
@@ -127,7 +130,7 @@ for (const [n, parte, clave, claveEn, fichero, es, en] of CAP) {
 export const CAPITULOS = CAP.map((c) => c[2]);
 export const TOTAL = CAPITULOS.length;
 // Order of the pages in the sitemap and the footer.
-export const ORDEN = ['documentacion', ...CAPITULOS, 'manifiesto', 'articulo'];
+export const ORDEN = ['documentacion', ...CAPITULOS, 'taller', 'manifiesto', 'articulo'];
 export const MENU = ['documentacion', 'manifiesto'];
 export const PIE = ['documentacion', 'manifiesto', 'articulo'];
 // Old addresses and where they lead now.

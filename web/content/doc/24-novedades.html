@@ -1,5 +1,5 @@
 <h1>Novedades</h1>
-<p>Lo que cambia para ti en cada versión de las skills y la capa, de la más nueva a la más vieja, y si tienes que hacer algo al actualizar. La versión que tienes la dice la lista de plugins de tu agente (<a href="doc:empieza#comprobar">Empieza</a>), y la de la web, su pie de página. Las anteriores a la 0.14 están en el <a href="https://github.com/MarsGotta/gdd/commits/main">historial del repositorio</a>.</p>
+<p>Van de la más nueva a la más vieja. La versión que tienes la dice la lista de plugins de tu agente (<a href="doc:empieza#comprobar">Empieza</a>), y la de la web, su pie de página. Las anteriores a la 0.14 están en el <a href="https://github.com/MarsGotta/gdd/commits/main">historial del repositorio</a>.</p>
 <h2 id="actualizar">Cómo se actualiza</h2>
 <ol>
 <li><strong>El plugin.</strong> Con las órdenes de tu agente, en una terminal (<a href="doc:las-skills#instalar">Las skills</a>). Después abre una sesión nueva: la que estaba abierta sigue con la versión anterior.</li>
@@ -23,8 +23,10 @@
 </ul>
 <p><strong>Tienes que hacer:</strong> como en cada versión, cambiar en tu CI la etiqueta de la capa. Un proyecto ya preparado conserva su bloque de <code>AGENTS.md</code>: si quieres la línea nueva, añádela tú entre sus marcas. Las pruebas del vigilante se guardan en <code>.gdd/evidence/</code>, que git ignora.</p>
 <h2 id="v0-18">0.18, 20 de noviembre de 2026</h2>
-<p>El agente de los casos sabe qué pruebas le debe a la capa. En una ronda de arreglo, copia las pruebas de los tests que no han cambiado desde la última vez que la capa las aceptó, y repite solo las demás.</p>
-<p><strong>Tienes que hacer:</strong> nada.</p>
+<ul>
+<li>El agente de los casos sabe qué pruebas le debe a la capa. En una ronda de arreglo, copia las pruebas de los tests que no han cambiado desde la última vez que la capa las aceptó, y repite solo las demás.</li>
+</ul>
+<p><strong>Tienes que hacer:</strong> como en cada versión, cambiar en tu CI la etiqueta de la capa.</p>
 <h2 id="v0-17">0.17, 19 de noviembre de 2026</h2>
 <ul>
 <li>Al preparar, tu agente apunta en el plano, en la orden que lanza los papeles, el esfuerzo de razonamiento de tus sesiones, para que ningún papel use el del entorno por defecto.</li>
@@ -32,20 +34,20 @@
 <li>El mensaje para aprobar un encargo rojo puede llegar a 200 palabras. En amarillo sigue en 150.</li>
 <li>En la 0.17.1, si tu agente no sabe qué esfuerzo usa su propia sesión, propone el del medio, nunca uno más alto, y comprueba el orden de los niveles con los precios del proveedor: el profundo es el que más cuesta y el ligero el que menos.</li>
 </ul>
-<p><strong>Tienes que hacer:</strong> nada. En un proyecto ya preparado, si quieres que cada papel lleve ese esfuerzo, pídele a tu agente que revise los niveles del plano, y lo apruebas.</p>
+<p><strong>Tienes que hacer:</strong> como en cada versión, cambiar en tu CI la etiqueta de la capa. En un proyecto ya preparado, si quieres que cada papel lleve ese esfuerzo, pídele a tu agente que revise los niveles del plano, y lo apruebas.</p>
 <h2 id="v0-16">0.16, 19 de noviembre de 2026</h2>
 <ul>
 <li>Llega Cerrar, con su skill, <code>gdd-close</code>. El encargo dice antes de construir qué esperas del cambio, con qué señal se sabrá y dónde se mirará. Un cambio en uso espera tu veredicto sin frenar el siguiente, y tu veredicto es sí, todavía no o no (<a href="doc:las-skills#cerrar">Las skills</a>).</li>
 <li>En la 0.16.1, el vigilante de un cambio rojo empieza por lo sencillo: volver como lo haría alguien (recargar, volver a entrar, reiniciar), mirar desde otra parte del producto lo que el cambio gastó o creó, y mandar a su entrada un valor que el producto debería calcular solo. Un fallo que necesita dos errores a la vez queda para después, salvo que el encargo o una regla de zona lo pidan.</li>
 </ul>
-<p><strong>Tienes que hacer:</strong> un plano de antes de la 0.16 no tiene <code>closing</code>, y con él un cambio que no prometía nada se cierra al salir. Si quieres que espere los días de la plantilla, 7, y decir quién da el veredicto, añade <code>closing</code> a tu plano, tú o tu agente, y apruébalo como cualquier cambio del plano.</p>
+<p><strong>Tienes que hacer:</strong> como en cada versión, cambiar en tu CI la etiqueta de la capa. Un plano de antes de la 0.16 no tiene <code>closing</code>, y con él un cambio que no prometía nada se cierra al salir. Si quieres que espere los días de la plantilla, 7, y decir quién da el veredicto, añade <code>closing</code> a tu plano, tú o tu agente, y apruébalo como cualquier cambio del plano.</p>
 <h2 id="v0-15">0.15, 19 de noviembre de 2026</h2>
 <ul>
 <li>La capa no deja registrar un encargo con un escenario nuevo o cambiado que no tenga una regla encima, un <code>@id</code> o una sola acción. Los escenarios que no tocas siguen como estaban, y un archivo escrito en Gherkin de otro idioma no lo comprueba.</li>
 <li>Antes de pedirte el sí, la capa le da a tu agente, desde lo sellado, las reglas que tiene que enseñarte.</li>
 <li>La línea de CI que te da tu agente compila la capa de la versión de tus skills, y ya no la de la rama principal de GDD.</li>
 </ul>
-<p><strong>Tienes que hacer:</strong> si tu CI se montó antes, cambia en ella la capa por la de tu versión, con <code>--tag</code>. Cuando cambies un escenario viejo, tu agente le pondrá su regla y su <code>@id</code>.</p>
+<p><strong>Tienes que hacer:</strong> si tu CI se montó antes, cambia en ella la capa por la de tu versión, con <code>--tag</code>. Desde esta versión, cada actualización pide cambiar esa etiqueta. Cuando cambies un escenario viejo, tu agente le pondrá su regla y su <code>@id</code>.</p>
 <h2 id="v0-14">0.14, 19 de noviembre de 2026</h2>
 <ul>
 <li>Encargar empieza por las reglas: tu agente las escribe encima de los escenarios, marca con <code>@assumed</code> las que ha supuesto él y te las enseña para que las apruebes o las corrijas. <code>@question</code> deja a la vista una pregunta que puede esperar a otro cambio.</li>

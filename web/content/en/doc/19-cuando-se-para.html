@@ -1,8 +1,9 @@
 <h1>When it stops</h1>
-<p>Each row is something you see, why it happens and what you do. Most of the time the answer is nothing: your agent goes on by itself and tells you in one line why it stopped. When it's your turn, it asks you one thing, with what it would do.</p>
+<p>Each row is something you see, why it happens and what your part is. Most of the time the answer is nothing: your agent goes on by itself and tells you in one line why it stopped.</p>
+<p>When it's your turn, it asks you one thing, with what it would do.</p>
 <h2 id="al-instalar">When installing</h2>
 <table>
-<thead><tr><th>You see</th><th>Why</th><th>What you do</th></tr></thead>
+<thead><tr><th>You see</th><th>Why</th><th>Your part</th></tr></thead>
 <tbody>
 <tr><td><code>claude plugin list</code> doesn't show <code>gdd@gdd</code></td><td>The plugin never got installed, or your Claude Code is older than 2.1.275.</td><td>Update Claude Code to 2.1.275 or later and install it again with the command in <a href="doc:empieza#instalar">Get started</a>.</td></tr>
 <tr><td><code>codex plugin list</code> doesn't show <code>gdd@gdd</code></td><td>One of the two steps is missing: adding the source or installing from it.</td><td>Run both again: <code>codex plugin marketplace add MarsGotta/gdd</code> and <code>codex plugin add gdd@gdd</code>.</td></tr>
@@ -15,9 +16,9 @@
 <p>In every case, check it with the list of plugins in a terminal, as in <a href="doc:empieza#comprobar">Get started</a>, and then open a new session.</p>
 <h2 id="en-un-cambio">During a change</h2>
 <table>
-<thead><tr><th>You see</th><th>Why</th><th>What you do</th></tr></thead>
+<thead><tr><th>You see</th><th>Why</th><th>Your part</th></tr></thead>
 <tbody>
-<tr><td>It waits for your approval</td><td>Your blueprint asks for a person there: the brief before anyone builds, or the pull request at the end.</td><td>Read it and approve it. No agent can do that for you.</td></tr>
+<tr><td>It waits for your approval</td><td>Your blueprint asks for a person there: the brief before anyone builds, or the pull request at the end.</td><td>Read it and approve it. Where you approve the change, the layer first shows you the evidence the reviewer leaves you. No agent can approve for you.</td></tr>
 <tr><td><code>@assumed</code> above a rule</td><td>Your agent chose that rule.</td><td>Correct it if it isn't yours. When you approve, the tag stays.</td></tr>
 <tr><td><code>@question</code> above a rule</td><td>The answer can wait for another change.</td><td>Nothing for now: the question stays in sight in the file.</td></tr>
 <tr><td>A check fails</td><td>A fix round, with the command, its exit code and its last lines.</td><td>Nothing, unless a limit runs out.</td></tr>
@@ -36,7 +37,7 @@
 <p>Nothing gets fixed by loosening a check. When one looks wrong, only whoever wrote it or a person corrects it, never the agent that has to pass it.</p>
 <h2 id="con-la-capa">With the layer</h2>
 <table>
-<thead><tr><th>You see</th><th>Why</th><th>What you do</th></tr></thead>
+<thead><tr><th>You see</th><th>Why</th><th>Your part</th></tr></thead>
 <tbody>
 <tr><td>The layer refuses a step</td><td>A step out of order, a file that changed after it was sealed or a cap with no room left.</td><td>Nothing: it says why and what to run instead, and your agent does that.</td></tr>
 <tr><td>The layer sends the reviewer's report back</td><td>A finding of its <code>fix</code> has no citation or, on red, no command that reproduces it. Or, on red, its <code>pass</code> doesn't say what it ran.</td><td>Nothing: your agent hands it back to the same reviewer, who completes it.</td></tr>
@@ -50,3 +51,12 @@
 </tbody>
 </table>
 <p class="sigue">Many of these answers come from the layer, and the commands that are useful to you are in <a href="doc:las-ordenes">The layer's commands</a>.</p>
+<aside data-cruzar>
+<p>A check fails and your agent thinks it's wrong. Can the agent building the change relax it to carry on?</p>
+<ul>
+<li data-bien>No: whoever wrote it or a person corrects it, never the agent that has to pass it.</li>
+<li>Yes, if it notes in the log why it relaxed it.</li>
+</ul>
+<p data-si="bien">That's it. Nothing gets fixed by loosening a check: the builder stops and says so, and someone else corrects it.</p>
+<p data-si="mal">Noting it in the log isn't enough: whoever goes through the gate doesn't decide how it's validated. Whoever wrote it or a person corrects it, never the agent that has to pass it.</p>
+</aside>

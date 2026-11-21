@@ -1,10 +1,36 @@
 <h1>Los kits</h1>
-<p>Imagina que empiezas un proyecto desde cero y tienes que decidir tú todas las reglas: qué se comprueba, con qué herramientas, qué instrucciones recibe cada agente. Para eso están los kits: reglas ya hechas para un área, de las que partes y que después ajustas. Son parte del motor, pero no son el motor: el motor es el mismo para todas las áreas, y lo que cambia es el kit que carga.</p>
+<p>Imagina que empiezas un proyecto desde cero y tienes que decidir tú todas las reglas: qué se comprueba, con qué herramientas, qué instrucciones recibe cada agente.</p>
+<p>Para eso están los kits: reglas ya hechas para un área, de las que partes y que después ajustas. Son parte del motor, pero no son el motor: el motor es el mismo para todas las áreas, y lo que cambia es el kit que carga.</p>
 <p>Todavía no hay ningún kit publicado: llegarán con T-minus. Mientras tanto, al preparar tu proyecto, <code>gdd-prepare</code> busca qué protege un proyecto como el tuyo y te propone zonas y puertas, cada una con su fuente (<a href="doc:las-skills">Las skills</a>).</p>
 <h2>Qué trae un kit</h2>
-<p>Trae su configuración, sus comprobaciones de serie, las herramientas que hay que descargar y las instrucciones para los agentes, como skills y buenas prácticas. El que traerá T-minus es el de software. Tu plano es ese kit más tus decisiones, o las de tu equipo, y cada cambio añade después los casos de sus comprobaciones a medida.</p>
-<p>También decide cómo se configura el método, por ejemplo cuánto se exige en cada color de la tabla del riesgo. Elegir un kit cambia tu plano, y eso lo decides tú, o tu equipo (<a href="doc:el-nucleo">El núcleo</a>).</p>
-<p>Si miras el motor por dentro, verás tres palabras más: sellar una comprobación es dejarla fuera del alcance del agente, la caja es el entorno acotado donde trabaja, y el registro guarda quién hizo qué, qué puerta lo juzgó y cuánto costó.</p>
+<ul>
+<li>Su configuración y sus comprobaciones de serie.</li>
+<li>Las herramientas que hay que descargar.</li>
+<li>Las instrucciones para los agentes, como skills y buenas prácticas.</li>
+<li>Cómo se configura el método, por ejemplo cuánto se exige en cada color de la tabla del riesgo.</li>
+</ul>
+<p>El que traerá T-minus es el de software. Tu plano es ese kit más tus decisiones, o las de tu equipo, y cada cambio añade después los casos de sus comprobaciones a medida.</p>
+<p>Elegir un kit cambia tu plano, y eso lo decides tú, o tu equipo (<a href="doc:el-nucleo">El núcleo</a>).</p>
+<p>Si miras el motor por dentro, verás tres palabras más:</p>
+<dl>
+<dt>Sellar</dt>
+<dd>Dejar una comprobación fuera del alcance del agente.</dd>
+<dt>Caja</dt>
+<dd>El entorno acotado donde trabaja el agente.</dd>
+<dt>Registro</dt>
+<dd>Lo que guarda quién hizo qué, qué puerta lo juzgó y cuánto costó.</dd>
+</dl>
 <h2>Cuando falta una comprobación</h2>
-<p>Si tu área necesita una comprobación que no existe, la construyes fuera del <a href="doc:el-motor">motor</a> y la conectas como una más. En diseño, por ejemplo, una puerta puede comparar cada componente, píxel a píxel, con su referencia del sistema de diseño y sus tokens. Para el motor es lo mismo que Cucumber o un linter: un comando que dice si pasa o no. Y como toda comprobación, el agente no la toca, ni el script ni las referencias.</p>
+<p>Si tu área necesita una comprobación que no existe, la construyes fuera del <a href="doc:el-motor">motor</a> y la conectas como una más. Para el motor es lo mismo que Cucumber o un linter: un comando que dice si pasa o no.</p>
+<p>En diseño, por ejemplo, una puerta puede comparar cada componente, píxel a píxel, con su referencia del sistema de diseño y sus tokens.</p>
+<p>Y como toda comprobación, el agente no la toca, ni el script ni las referencias.</p>
 <p class="sigue">Con un kit ya tendrás de dónde partir. Lo que queda de la documentación es para consultar cuando te haga falta, empezando por qué hacer cuando un cambio se para, en <a href="doc:cuando-se-para">Cuando se para</a>.</p>
+<aside data-cruzar>
+<p>¿Cada área necesita su propio motor?</p>
+<ul>
+<li data-bien>No: el motor es el mismo para todas, y lo que cambia es el kit que carga.</li>
+<li>Sí: cada área trae su propio motor, con sus reglas dentro.</li>
+</ul>
+<p data-si="bien">Eso es. Un kit son reglas ya hechas para un área, de las que partes y que después ajustas. Todavía no hay ninguno publicado: llegarán con T-minus.</p>
+<p data-si="mal">No hace falta. El motor es el mismo para todas las áreas y carga el kit de cada una, y si a la tuya le falta una comprobación, la construyes fuera del motor y la conectas como una más.</p>
+</aside>

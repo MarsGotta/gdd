@@ -26,7 +26,7 @@ const TUTORIAL_JS = fs.existsSync(path.join(raiz, 'src/js/tutorial.js'));
 let tutorial = () => '';
 if (!TUTORIAL_FALTA.includes('scripts/tutorial.mjs')) ({ tutorial } = await import('./tutorial.mjs'));
 const VERSION = createHash('sha256')
-  .update(['src/css/tema-gdd.css', 'src/css/site.css', 'src/css/portada.css', 'src/css/tutorial.css', 'src/js/plano.js', 'src/js/portada.js', 'src/js/tutorial.js', 'src/js/sitio.js', 'src/js/kimen.js', 'node_modules/@kimen/elements/package.json', 'node_modules/@kimen/tokens/package.json'].filter((f) => fs.existsSync(path.join(raiz, f))).map(leer).join(''))
+  .update(['src/css/tema-gdd.css', 'src/css/site.css', 'src/css/documentacion.css', 'src/css/portada.css', 'src/css/tutorial.css', 'src/js/plano.js', 'src/js/portada.js', 'src/js/tutorial.js', 'src/js/sitio.js', 'src/js/kimen.js', 'node_modules/@kimen/elements/package.json', 'node_modules/@kimen/tokens/package.json'].filter((f) => fs.existsSync(path.join(raiz, f))).map(leer).join(''))
   .digest('hex').slice(0, 10);
 
 // --- Two languages -------------------------------------------------------------------------
@@ -213,6 +213,13 @@ const vestir = (html, { copiar = false } = {}) => {
   }
 
   $('ol:not(.pasos):not(.mapa-lista)').addClass('lista-pasos');
+  $('dl').each((_, dl) => {
+    let grupo = null;
+    $(dl).children('dt, dd').each((_, n) => {
+      if (!grupo || (n.name === 'dt' && grupo.children().last().is('dd'))) grupo = $('<div></div>').insertBefore(n);
+      grupo.append(n);
+    });
+  });
   if (!copiar) $('pre').removeAttr('data-copiar');
   // A code block of a document is a Kimen ki-code-block, which copies its code where the document
   // asks for it (data-copiar). The code stays as text inside it, so the Markdown copy, the checks
@@ -402,10 +409,63 @@ const inicio = () => documento({
 });
 
 // --- The pages of the documents -----------------------------------------------------------
+// A question with its answers (aside[data-cruzar] in a document): Kimen's ki-radio-group holds the
+// answers, and sitio.js shows why on each one. The one a chapter ends with, "Antes de cruzar", is
+// drawn as the door the canvas closes each chapter with, which opens on the right answer; the
+// workshop's cases (data-caso) are the question alone. Without scripts, the answers and both
+// explanations stay in view.
+const pregunta = (aparte, $, final) => {
+  const enunciado = aparte.children('p').not('[data-si]');
+  const respuestas = aparte.find('li');
+  const por = (si) => aparte.children(`p[data-si="${si}"]`);
+  const falta = [
+    enunciado.length !== 1 && 'one question',
+    (respuestas.length < 2 || respuestas.filter('[data-bien]').length !== 1) && 'two answers or more, one of them data-bien',
+    (por('bien').length !== 1 || por('mal').length !== 1) && 'one p[data-si="bien"] and one p[data-si="mal"]',
+  ].filter(Boolean);
+  if (falta.length) throw new Error(`aside[data-cruzar] needs ${falta.join(', ')}: ${norm(aparte.text()).slice(0, 80)}`);
+  const opciones = respuestas.map((i, li) => `<ki-radio value="${$(li).is('[data-bien]') ? 'bien' : `mal-${i}`}">${$(li).html()}</ki-radio>`).get().join('');
+  const puerta = final ? `<div class="cruzar__muro" aria-hidden="true"><i></i><svg viewBox="0 0 84 84"><path class="cruzar__arco" d="M84 5A84 84 0 0 1 0 89"></path><path class="cruzar__hoja" d="M0 5H84"></path></svg><i></i></div>
+<h2 class="cruzar__titulo" id="cruzar-titulo">${tr('Antes de cruzar', 'Before you cross')}</h2>
+` : '';
+  return `<section class="cruzar${final ? '' : ' cruzar--caso'}"${final ? ' aria-labelledby="cruzar-titulo"' : ''}>
+${puerta}<p class="cruzar__pregunta">${enunciado.html()}</p>
+<ki-radio-group class="cruzar__opciones" label="${tr('Tu respuesta', 'Your answer')}">${opciones}</ki-radio-group>
+<div aria-live="polite"><p class="cruzar__si" data-si="bien">${por('bien').html()}</p>
+<p class="cruzar__si" data-si="mal">${por('mal').html()}</p></div>
+</section>`;
+};
+
+// The workshop's lab (section[data-laboratorio]): each of the four questions is a Kimen ki-switch,
+// on to begin with, and turning one off shows what slips through and opens the door of the plan.
+const laboratorio = (seccion, $) => {
+  const lista = seccion.children('ul').first();
+  const mandos = lista.children('li').map((i, li) => {
+    const resto = $(li).clone();
+    const titulo = resto.children('strong').first();
+    if (!titulo.length) throw new Error(`Each question of section[data-laboratorio] starts in <strong>: ${norm($(li).text()).slice(0, 80)}`);
+    const q = titulo.html();
+    titulo.remove();
+    return `<div class="laboratorio__mando"><ki-switch checked data-n="${i}">${q}</ki-switch>\n<p class="laboratorio__porque" data-n="${i}">${resto.html().trim()}</p></div>`;
+  }).get().join('');
+  lista.replaceWith(`<div class="laboratorio__mandos">${mandos}</div>
+<div class="laboratorio__plano" aria-hidden="true"><span class="laboratorio__lugar laboratorio__lugar--agente">${tr('Agente', 'Agent')}</span><span class="laboratorio__lugar laboratorio__lugar--produccion">${tr('Producción', 'Production')}</span><span class="laboratorio__muro"></span><svg class="laboratorio__puerta" viewBox="0 0 84 84"><path class="cruzar__arco" d="M84 5A84 84 0 0 1 0 89"></path><path class="cruzar__hoja" d="M0 5H84"></path></svg><span class="laboratorio__agente"></span></div>`);
+  const resultados = seccion.children('p[data-resultado]');
+  if (resultados.filter('[data-resultado="cierra"]').length !== 1 || resultados.filter('[data-resultado="abre"]').length !== 1) throw new Error('section[data-laboratorio] needs one p[data-resultado="cierra"] and one "abre"');
+  resultados.wrapAll('<div aria-live="polite"></div>');
+  seccion.addClass('laboratorio').attr('data-estado', 'cierra');
+};
+
 // Shared by every page of text: the body of the document, dressed, and its index of sections.
 const cuerpoDe = (nombre) => {
   const $ = T[nombre];
   const copia = cheerio.load($.html(), null, false);
+  const finales = copia('aside[data-cruzar]:not([data-caso])');
+  if (finales.length > 1) throw new Error(`${nombre}: ${finales.length} questions without data-caso; only the one that closes the chapter goes without it`);
+  const final = finales.length ? pregunta(finales, copia, true) : '';
+  finales.remove();
+  copia('aside[data-cruzar][data-caso]').each((_, a) => { copia(a).replaceWith(pregunta(copia(a), copia, false)); });
+  copia('section[data-laboratorio]').each((_, sec) => laboratorio(copia(sec), copia));
   const h1 = copia('h1').first().html();
   copia('h1').first().remove();
   copia('p.meta').remove();
@@ -419,7 +479,7 @@ const cuerpoDe = (nombre) => {
   const conH2 = copia('h2').length > 0;
   const entradas = copia(conH2 ? 'h2[id]' : 'h3[id]').filter((_, h) => !copia(h).closest('.tutorial').length).map((_, h) => [[copia(h).attr('id'), copia(h).text()]]).get();
   if (copia('[data-boton]').length) copia('[data-boton] a').addClass('boton').parent().addClass('salidas').removeAttr('data-boton');
-  const cuerpo = vestir(copia.html(), { copiar: true });
+  const cuerpo = vestir(copia.html() + final, { copiar: true });
   return { h1, cuerpo, entradas, usaTutorial: copia('.tutorial').length > 0 };
 };
 
@@ -446,6 +506,15 @@ const paginaDe = (nombre) => {
 // The map of the documentation: a short text and the chapters in their parts. Each list of the
 // map starts at the number its first chapter has in the book, so a chapter added or moved never
 // leaves the map counting behind.
+// Three ways into the documentation, as the design canvas proposes: each one numbers its stops on
+// the map. The number is drawn from data-orden-<way>, so the map's text stays its document's.
+const RUTAS = {
+  a: { es: 'Usarlo ya', en: 'Use it now', paradas: ['empieza', 'las-skills', 'cuando-se-para', 'los-colores'] },
+  b: { es: 'Entenderlo', en: 'Understand it', paradas: ['la-idea', 'manos-a-la-obra', 'las-piezas', 'los-principios', 'los-momentos'] },
+  c: { es: 'A mano', en: 'By hand', paradas: ['empieza-hoy', 'un-caso-delicado', 'como-se-engana-una-puerta', 'el-nucleo'] },
+};
+const cuantas = (n) => tr(['', '', 'Dos', 'Tres', 'Cuatro', 'Cinco'][n], ['', '', 'Two', 'Three', 'Four', 'Five'][n]);
+
 const paginaMapa = () => {
   const doc = DOCS.documentacion[idioma];
   const { h1, cuerpo: tal } = cuerpoDe('documentacion');
@@ -455,12 +524,20 @@ const paginaMapa = () => {
     $m(ol).attr('start', String(n));
     n += $m(ol).children('li').length;
   });
+  for (const [r, { paradas }] of Object.entries(RUTAS)) {
+    paradas.forEach((k, i) => { $m(`ol.mapa-lista > li:has(> a[href="${DOCS[k][idioma].ruta}"])`).attr(`data-orden-${r}`, String(i + 1)); });
+  }
   const cuerpo = $m.html();
+  const rutas = `<div class="rutas contenedor">
+  <ki-segmented-control class="rutas__control" label="${tr('Cómo quieres empezar', 'How you want to start')}" value="a" full-width>${Object.entries(RUTAS).map(([r, x]) => `<ki-segment value="${r}">${x[idioma]}</ki-segment>`).join('')}</ki-segmented-control>
+  <div class="rutas__salida">${Object.entries(RUTAS).map(([r, { paradas }]) => `<p class="rutas__ruta" data-ruta="${r}"><a class="boton" href="${DOCS[paradas[0]][idioma].ruta}">${tr(`Ir a «${DOCS[paradas[0]].es.menu}»`, `Go to "${DOCS[paradas[0]].en.menu}"`)}</a> <span>${cuantas(paradas.length)} ${tr('paradas, numeradas abajo.', 'stops, numbered below.')}</span></p>`).join('')}<p class="rutas__taller"><a href="${DOCS.taller[idioma].ruta}">${DOCS.taller[idioma].titulo}</a></p></div>
+</div>`;
   return documento({
     ruta: doc.ruta,
     titulo: doc.titulo,
     descripcion: doc.descripcion,
     cuerpo: `<div class="pagina-cabeza contenedor"><h1>${h1}</h1></div>
+    ${rutas}
     <div class="mapa contenedor"><article class="lectura">${cuerpo}</article></div>`,
   });
 };
@@ -483,6 +560,14 @@ const capitulosNav = (actual, entradas) => {
 </nav>`;
 };
 
+// How long a chapter takes to read, at about 200 words a minute, never less than one.
+const lectura = (html) => {
+  const $ = cheerio.load(html, null, false);
+  $('figure, .tutorial').remove(); // the pieces and diagrams are looked at, not read word by word
+  const minutos = Math.max(1, Math.round(norm($.root().text()).split(' ').length / 200));
+  return minutos === 1 ? tr('Un minuto', 'One minute') : tr(`Unos ${minutos} minutos`, `About ${minutos} minutes`);
+};
+
 const vecino = (clave, sentido, n) => {
   const d = DOCS[clave];
   const titulo = d.capitulo ? `${d.capitulo.n}. ${d[idioma].menu}` : d[idioma].menu;
@@ -503,7 +588,7 @@ const paginaCapitulo = (nombre) => {
     enlacesCabeza: enlaces,
     cuerpo: `<div class="capitulo contenedor">
   ${capitulosNav(nombre, entradas)}
-  <header class="capitulo__cabeza"><p class="capitulo__etiqueta">${tr(`Capítulo ${n} de ${TOTAL}`, `Chapter ${n} of ${TOTAL}`)} · ${PARTES[parte][idioma]} · ${TIPOS[tipo][idioma]}</p><h1>${h1}</h1></header>
+  <header class="capitulo__cabeza"><p class="capitulo__etiqueta">${tr(`Capítulo ${n} de ${TOTAL}`, `Chapter ${n} of ${TOTAL}`)} · ${PARTES[parte][idioma]} · ${TIPOS[tipo][idioma]} · ${lectura(cuerpo)}</p><h1>${h1}</h1><p class="capitulo__bajada">${doc.descripcion}</p></header>
   <article class="lectura">${cuerpo}</article>
   <nav class="vecinos" aria-label="${tr('Anterior y siguiente', 'Previous and next')}">${vecino(antes, 'anterior')}${despues ? vecino(despues, 'siguiente') : ''}</nav>
 </div>`,
@@ -572,6 +657,10 @@ ${linea('documentacion')}
 
 ${partes.join('\n\n')}
 
+## Practice
+
+${linea('taller')}
+
 ## Optional
 
 ${linea('articulo')}
@@ -580,7 +669,7 @@ ${linea('articulo')}
 
 // Kimen's tokens (its default theme, both schemes), then the site's theme, Plano, and the site.
 fs.copyFileSync(path.join(raiz, 'node_modules/@kimen/tokens/dist/css/tokens.css'), path.join(dist, 'assets/kimen.css'));
-fs.writeFileSync(path.join(dist, 'assets/site.css'), leer('src/css/tema-gdd.css') + leer('src/css/site.css') + (TUTORIAL_CSS ? `\n${leer('src/css/tutorial.css')}` : ''));
+fs.writeFileSync(path.join(dist, 'assets/site.css'), leer('src/css/tema-gdd.css') + leer('src/css/site.css') + leer('src/css/documentacion.css') + (TUTORIAL_CSS ? `\n${leer('src/css/tutorial.css')}` : ''));
 // The Kimen components the pages use, in one module (src/js/kimen.js).
 esbuild.buildSync({ entryPoints: [path.join(raiz, 'src/js/kimen.js')], bundle: true, minify: true, format: 'esm', target: 'es2022', outfile: path.join(dist, 'assets/kimen.js'), legalComments: 'eof', logLevel: 'warning',
   // Stencil's lazy loader looks for entry chunks this build never makes: each component is defined directly.

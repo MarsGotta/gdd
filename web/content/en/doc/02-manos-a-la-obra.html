@@ -1,6 +1,7 @@
 <h1>Hands on</h1>
 <p>You know the idea by now, so let's put it to work. This part is guided, so don't worry: I'll go piece by piece and explain each thing just when you need it.</p>
-<p>We've been asked to build an online shop. I think it's an example we all know, and it holds the whole range of risk. A text that goes wrong is irrelevant. A payment gateway that goes wrong charges your customers twice. First we'll prepare the gates together, and then we'll review four changes to see whether what we've prepared holds up. The shop and everything that happens to it are made up.</p>
+<p>We've been asked to build an online shop. I think it's an example we all know, and it holds the whole range of risk. A text that goes wrong is irrelevant. A payment gateway that goes wrong charges your customers twice.</p>
+<p>First we'll prepare the gates together, and then we'll review four changes to see whether what we've prepared holds up. The shop and everything that happens to it are made up.</p>
 <h2>Prepare: before you write a line</h2>
 <p>The first thing is to plan which gates are needed and build them. No code yet, because the gates come first.</p>
 <p>For this step I recommend leaning on a GDD engine, the program that enforces the method, because it takes a lot of what you're about to see off your plate. Mine, <a href="doc:el-motor">T-minus</a>, is still in development, so here we'll use only what you already have at hand day to day: a repository, CI and an agent.</p>
@@ -18,11 +19,18 @@
 <p>Gates, like features, evolve over time, and that's part of the magic of GDD. For now, and to keep the example simple, we'll focus on small, concrete cases.</p>
 <h3>What the agent always carries</h3>
 <p>Before the gates, there are things the agent is going to need at all of them: what the shop is about, how we work and what's not up for negotiation. That's the constitution, a short document with the project's rules. In ours we'd write, for example, that prices are stored in cents and that card details are never stored.</p>
-<p>Alongside it go the tools and skills used throughout the flow, like the ones for the shop's technologies. All of that is the cross-cutting context, and the agent always carries it, at every gate. Since it goes along on every call, the simpler and clearer the better: if something only matters at one gate, it stays at that gate. An engine helps you draft it, and it's something T-minus will do during Prepare.</p>
+<p>Alongside it go the tools and skills used throughout the flow, like the ones for the shop's technologies. All of that is the cross-cutting context, and the agent always carries it, at every gate.</p>
+<p>Since it goes along on every call, the simpler and clearer the better: if something only matters at one gate, it stays at that gate. An engine helps you draft it, and it's something T-minus will do during Prepare.</p>
 <h3>The four gates</h3>
 <p>A gate is what the agent has to prove before moving on. For this shop we'll put four, one after another: scenario, testing, refactoring and reviewing. In your project they can be others, and what stays the same are the <a href="doc:los-momentos#pasos">seven steps of a change</a>.</p>
-<p>Each gate carries two things. Its checks are what shows it has really been passed: a test, a linter, another agent or a person.</p>
-<p>Its context is what we give the agent, on top of what it always carries, so it can get through, and it's what usually gets forgotten. <a href="doc:los-principios#3-a-cada-puerta-su-contexto">A gate without context is a wall</a>: the agent guesses, fails, guesses again, and you pay for every round. That's why each gate gets what it needs for that gate, and nothing more: the agent always starts with a clean context. That does include what the previous gate generated, like the scenarios, but not its conversation.</p>
+<p>Each gate carries two things:</p>
+<dl>
+<dt>Its checks</dt>
+<dd>What shows it has really been passed: a test, a linter, another agent or a person.</dd>
+<dt>Its context</dt>
+<dd>What we give the agent, on top of what it always carries, so it can get through. It's what usually gets forgotten.</dd>
+</dl>
+<p><a href="doc:los-principios#3-a-cada-puerta-su-contexto">A gate without context is a wall</a>: the agent guesses, fails, guesses again, and you pay for every round. That's why each gate gets what it needs for that gate, and nothing more: the agent always starts with a clean context. That does include what the previous gate generated, like the scenarios, but not its conversation.</p>
 <table>
 <thead><tr><th>Gate</th><th>What it has to prove</th><th>Context</th><th>Checks, at most</th></tr></thead>
 <tbody>
@@ -32,14 +40,25 @@
 <tr><td>Reviewing</td><td>That it's ready to go in</td><td>The PR</td><td>CI and a code reviewer: another reviewer, a person or both</td></tr>
 </tbody>
 </table>
-<p><strong>Scenario.</strong> Before building anything, we write down what has to pass. We do it in Gherkin, a language made to describe behavior with Given, When and Then sentences. Anyone can read it, and a tool like Cucumber can run it. You give an agent the request and the design in Figma, and it writes it for you:</p>
+<p><strong>Scenario.</strong> Before building anything, we write down what has to pass. We do it in Gherkin, a language made to describe behavior with Given, When and Then sentences. Anyone can read it, and a tool like Cucumber can run it. You give an agent the request and the design in Figma, and it writes it for you, each scenario under the rule it checks:</p>
 <pre><code data-fuente="escenario-pago.txt"></code></pre>
-<p><strong>Testing.</strong> This check is shaped to each change, which is why I call it custom. Another model turns the scenarios into tests, and those are the tests our agent will have to pass. There's a reason someone else writes them: whoever goes through the gate doesn't decide how it's validated. Before moving on they have to fail, and for the right reason, because a gate that never closes isn't a gate. We give the agent the scenarios, plus the schemas and the data model, so it doesn't make up the shape of an order.</p>
-<p><strong>Refactoring.</strong> With the tests passing, we ask it to improve the code, because working and being maintainable are different things. The checks on this gate are standard, because they apply to the whole project, and deterministic, because the same code always gives the same result: linters, typing and Sonar, a quality analyzer. For context we give it good-practice skills. And when there's risk, it also carries a reviewer: another agent, from another model and with a clean context, that reviews the change against what has to pass and, in what's most delicate, runs it the way someone using the shop would and only passes it if it sees that it works.</p>
+<p><strong>Testing.</strong> Another model turns the scenarios into tests, and those are the tests our agent will have to pass. This check is shaped to each change, which is why I call it custom.</p>
+<p>There's a reason someone else writes them: whoever goes through the gate doesn't decide how it's validated. Before moving on they have to fail, and for the right reason, because a gate that never closes isn't a gate. We give the agent the scenarios, plus the schemas and the data model, so it doesn't make up the shape of an order.</p>
+<p><strong>Refactoring.</strong> With the tests passing, we ask it to improve the code, because working and being maintainable are different things. The checks on this gate are standing ones, because they apply to the whole project, and deterministic, because the same code always gives the same result: linters, typing and Sonar, a quality analyzer. For context we give it good-practice skills.</p>
+<p>When there's risk, it also carries a reviewer: another agent, from another model and with a clean context, that reviews the change against what has to pass. In this shop the blueprint asks it, on yellow and on red, to also run the change the way someone using the shop would, and to pass it only if it sees that it works. With the skills, on yellow it reads it and on red it also runs it.</p>
 <p><strong>Reviewing.</strong> This is the PR phase, where CI and a code reviewer have to pass, and the reviewer can be another model, a person or both. If it's a model, it's one more reviewer: it reviews the change and, in what's delicate, runs it before passing it. If it's a person, they approve it, and one never stands in for the other.</p>
 <h3>The traffic light</h3>
-<p>The four gates are always there, but you can't ask the same of a text as of the payment gateway. That's what the traffic light is for: it tells you the risk of each change, and depending on its color the gates get tougher or softer. It can be a deterministic script, a decision model or a person, and an engine gives it to you already built. Whichever it is, it looks at what was touched, not at what the agent says it did, it's recalculated at the end and it can only go up.</p>
-<p>All we need is a script that looks at which files the change touched. What's delicate, which for now is <code>payments/</code>, <code>admin/</code> and the migrations, is red, because what can't be undone is never green. What's harmless, like <code>text/</code>, is green. And we mark everything else yellow on purpose, because green is only what we have marked as green.</p>
+<p>The four gates are always there, but you can't ask the same of a text as of the payment gateway. That's what the traffic light is for: it tells you the risk of each change, and depending on its color the gates get tougher or softer.</p>
+<p>It can be a deterministic script, a decision model or a person, and an engine gives it to you already built. Whichever it is, it looks at what was touched, not at what the agent says it did, it's recalculated at the end and it can only go up.</p>
+<p>All we need is a script that looks at which files the change touched. For now, this is what we tell it:</p>
+<table>
+<thead><tr><th>Color</th><th>What goes in</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><strong>Red</strong></td><td><code>payments/</code>, <code>admin/</code> and the migrations</td><td>It's what's delicate, and what can't be undone is never green</td></tr>
+<tr><td><strong>Green</strong></td><td><code>text/</code></td><td>It's harmless</td></tr>
+<tr><td><strong>Yellow</strong></td><td>Everything else</td><td>We mark it that way on purpose, because green is only what we have marked as green</td></tr>
+</tbody>
+</table>
 <p>Notice how many times each color calls you. An open gate is one that asks for nothing in that color:</p>
 <figure data-pieza="puertas"></figure>
 <table>
@@ -61,7 +80,8 @@
 <li><strong>The context</strong>, in the repository: the constitution in the agent's instructions file, the skills and the data schemas. What comes from outside, like the Figma design, reaches it through an MCP server or with the request.</li>
 <li><strong>What the agent can't touch</strong>, protected with the branch and a <code>CODEOWNERS</code>, the GitHub file that says who has to approve what: the tests, CI, the traffic-light script, the constitution and the blueprint. The approved tests also live on a separate branch, and CI compares it with the agent's. That gives you a good part of the guarantee, and only an engine gives you all of it.</li>
 </ul>
-<p>The gates and the context, together, form the agent's environment, which people also call a harness. One thing is left before you trust it, and that's trying to break it: you give each check a deliberately bad case, and if it lets it through, that check isn't useful yet. The details of how to set it up in your repository are in <a href="doc:empieza-hoy">A gate by hand</a>.</p>
+<p>The gates and the context, together, form the agent's environment, which people also call a harness.</p>
+<p>One thing is left before you trust it, and that's trying to break it: you give each check a deliberately bad case, and if it lets it through, that check isn't useful yet. Until they all hold, we don't ask the agent for any change. The details of how to set it up in your repository are in <a href="doc:empieza-hoy">A gate by hand</a>, and in the <a href="doc:taller">Workshop</a> you can practice how an error slips through a gate that doesn't hold.</p>
 <h2>The journey: four changes</h2>
 <p>It's all up, so let's ask the agent for four changes, from less to more risk. In each one your job is the same: look at what happened and decide whether the blueprint worked. Before you see the result, think about what color you'd give it.</p>
 <p>Each change goes through two moments: Brief, where we fix what has to pass, and Execute, where the agent goes through the gates. Once it's in use comes Close, where you look at whether it helped. If something slips through, or a gate stops adding anything, the last one comes, Harden.</p>
@@ -72,8 +92,28 @@
 <tbody>
 <tr><td>The text of a button</td><td>Green</td><td>Nothing, it wasn't needed</td><td>Nothing</td><td>By itself, once its week passed</td></tr>
 <tr><td>A size filter</td><td>Yellow</td><td>A size with no results and the filter lost on the second page</td><td>Approving its rules</td><td>Yes, after ten days</td></tr>
-<tr><td>The payment gateway</td><td>Red</td><td>The two clicks, the changed test and the payment with the gateway down</td><td>Reading its rules, adding a scenario and approving</td><td>Yes, after the month end</td></tr>
+<tr><td>The payment gateway</td><td>Red</td><td>The two clicks, the changed test and the payment with the gateway down</td><td>Reading its rules, adding the two-click scenario, checking how it gets undone and approving</td><td>Yes, after the month end</td></tr>
 <tr><td>My orders</td><td>Yellow</td><td>Nothing, and it slipped through</td><td>Approving its rules, and then deciding what changes in the blueprint</td><td>No: what slipped through goes to Harden</td></tr>
 </tbody>
 </table>
-<p>The gates were the same four times. What moved is what each change is asked for, what falls to you and how it closes. When you want to set it up in your project, go to <a href="doc:empieza">Get started</a>, with your agents, or to <a href="doc:empieza-hoy#para-empezar-tu-primera-puerta">a gate by hand</a>.</p>
+<p>The gates were the same four times. What moved is what each change is asked for, what falls to you and how it closes.</p>
+<h2>What My orders teaches</h2>
+<p>In My orders the agent did what we asked, and the gates checked it. The blueprint failed, not the agent or the gates: nobody had said that deciding who sees what was delicate, and that's why <code>orders/</code> came out yellow.</p>
+<p>So hardening it doesn't stop at fixing the code:</p>
+<ul>
+<li><code>orders/</code> and everything that decides who sees what move to red. It's a change to the blueprint, so you approve it, or your team does.</li>
+<li>"One person doesn't see another's orders" becomes a scenario you approve, with its test, and it stays as a standing check for every change.</li>
+<li>From now on the reviewer carries it in what it checks.</li>
+</ul>
+<p>If another change lets someone see another person's order again, the traffic light says red, the test fails and the gate stops it. And what's left for the next blueprint is a question we had already asked ourselves at the start:</p>
+<blockquote><p>Before you classify, ask what would be serious if it goes wrong.</p></blockquote>
+<p class="sigue">In <a href="doc:las-piezas">The pieces and the roles</a> I put a name to everything you've just used. And when you want to set it up in your project, go to <a href="doc:empieza">Get started</a>, with your agents, or to <a href="doc:empieza-hoy#para-empezar-tu-primera-puerta">a gate by hand</a>.</p>
+<aside data-cruzar>
+<p>In My orders all four gates passed. Does that mean the change was right?</p>
+<ul>
+<li data-bien>No: it only got past what the blueprint knew how to check.</li>
+<li>Yes: if it gets through every gate, the change is right.</li>
+</ul>
+<p data-si="bien">That's it. Getting through the last gate only says the change got past what we knew how to check, and the blueprint didn't mark who sees what as delicate. What slipped through gets hardened, and that changes the blueprint.</p>
+<p data-si="mal">Not quite. Getting through the last gate only says the change got past what we knew how to check, and here the blueprint didn't mark who sees what as delicate. What slipped through gets hardened, and that changes the blueprint.</p>
+</aside>

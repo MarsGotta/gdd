@@ -1,0 +1,71 @@
+<h1>Workshop: does this gate hold?</h1>
+<p>Before you take a gate as good, the <a href="doc:manifiesto">Manifesto</a> asks for four answers, one for each of principles 1, 4, 5 and 2 in <a href="doc:los-principios">The seven principles</a>. If one is no, the gate doesn't hold yet. Four yeses aren't enough either: it also has to check what matters, and your blueprint decides that.</p>
+<p>Here you take one away at a time and see where the error slips through. Then you decide whether six gates hold.</p>
+<section data-laboratorio>
+<h2 id="build-the-gate">Build the gate</h2>
+<p>The change is the discount codes of <a href="doc:un-caso-delicado">A delicate case</a>. Before starting, two scenarios were written: with the 10% code, a €50 cart comes to €45, and an €80 one to €72. The agent brings a solution tailored to the first one, which gives €70 for €80, and says "done."</p>
+<ul>
+<li><strong>Was it decided before the agent started?</strong> If not: the check was written after seeing its work, so it checks what it did and not what was needed, and the €80 cart wasn't there.</li>
+<li><strong>Is it checked without trusting what the agent says?</strong> If not: the agent said its tests passed and nobody ran them. Saying it opened the gate.</li>
+<li><strong>Is it out of the agent's reach, so that touching it does the agent no good?</strong> If not: the agent changed what surrounds the test, for example <code>"test": "exit 0"</code> in <code>package.json</code>, and CI ran what was on its branch.</li>
+<li><strong>Have you seen it reject something done wrong, real or planted on purpose?</strong> If not: nobody ever saw it fail, and it lets the error through just as it would have let anything through.</li>
+</ul>
+<p data-resultado="cierra">With all four answers on yes, the gate says no: the €80 cart fails, the error goes back to the agent and you don't even notice.</p>
+<p data-resultado="abre">With any of them on no, the gate opens and the error reaches production.</p>
+</section>
+<h2 id="six-gates">Six gates. Do they hold?</h2>
+<aside data-cruzar data-caso>
+<p>The agent runs the tests in its own session and tells you they pass.</p>
+<ul>
+<li>It holds.</li>
+<li data-bien>It doesn't hold.</li>
+</ul>
+<p data-si="bien">That's it: it's still its word. Have someone else run them, be it CI, an engine or you in a clean copy.</p>
+<p data-si="mal">No: it's still its word. Have someone else run them, be it CI, an engine or you in a clean copy.</p>
+</aside>
+<aside data-cruzar data-caso>
+<p>The payment tests were written by another session before starting, and you saw one fail on purpose. CI is required on a protected branch, and a CI step checks that neither the tests nor what surrounds them changed from what was approved.</p>
+<ul>
+<li data-bien>It holds.</li>
+<li>It doesn't hold.</li>
+</ul>
+<p data-si="bien">That's it: it was decided before, someone else runs it, it's out of its reach and you've seen it close. Without that step comparing with what was approved it wouldn't be enough, because CI runs what's on the agent's branch.</p>
+<p data-si="mal">It does hold: it was decided before, someone else runs it, it's out of its reach and you've seen it close. What holds it up is the step that compares the tests, and what surrounds them, with what was approved.</p>
+</aside>
+<aside data-cruzar data-caso>
+<p>A linter that has been in the repository for months and has never flagged anything.</p>
+<ul>
+<li>It holds.</li>
+<li data-bien>It doesn't hold yet.</li>
+</ul>
+<p data-si="bien">That's it: a gate that never closes is not a gate. Put something done wrong in front of it and see whether it rejects it.</p>
+<p data-si="mal">Not yet: a gate that never closes is not a gate. Put something done wrong in front of it and see whether it rejects it.</p>
+</aside>
+<aside data-cruzar data-caso>
+<p>You look at the diff and ask the same agent to write tests for what it did.</p>
+<ul>
+<li data-bien>It doesn't hold.</li>
+<li>It holds.</li>
+</ul>
+<p data-si="bien">That's it: it comes afterwards and it's written by whoever crosses. It will check what it did, not what was needed.</p>
+<p data-si="mal">No: it comes afterwards and it's written by whoever crosses. It will check what it did, not what was needed.</p>
+</aside>
+<aside data-cruzar data-caso>
+<p>Another agent, with a clean context, runs the change. It has already caught a fault you planted on purpose, and each of its findings comes with its citation and the command that reproduces it.</p>
+<ul>
+<li data-bien>It holds.</li>
+<li>It doesn't hold.</li>
+</ul>
+<p data-si="bien">That's it: it's a reviewer, and its word isn't taken either, because each finding comes with what to check it with. It works as a check, though its approval never counts as a person's.</p>
+<p data-si="mal">It does hold: it's a reviewer, and its word isn't taken either, because each finding comes with what to check it with. Its approval never counts as a person's, though.</p>
+</aside>
+<aside data-cruzar data-caso>
+<p>Each rule has a single test, in the agent's view. They all pass, but the code says <code>if (name === "Ana")</code> and returns exactly what the test expects.</p>
+<ul>
+<li>It holds.</li>
+<li data-bien>It doesn't hold.</li>
+</ul>
+<p data-si="bien">That's it: it fools it from the code, without touching the test. More cases per rule, examples the agent doesn't see or a reviewer who runs the change with other values stop it.</p>
+<p data-si="mal">No: it fools it from the code, without touching the test. More cases per rule, examples the agent doesn't see or a reviewer who runs the change with other values stop it.</p>
+</aside>
+<p class="sigue">Build your own, without skills, in <a href="doc:empieza-hoy">A gate by hand</a>, and see the rest of the tricks in <a href="doc:como-se-engana-una-puerta">How a gate gets fooled</a>.</p>

@@ -1,0 +1,71 @@
+<h1>Taller: ¿esta puerta vale?</h1>
+<p>Antes de dar una puerta por buena, el <a href="doc:manifiesto">Manifiesto</a> pide cuatro respuestas, una por cada uno de los principios 1, 4, 5 y 2 de <a href="doc:los-principios">Los siete principios</a>. Si una es que no, la puerta todavía no vale. Que las cuatro sean que sí no basta: además tiene que comprobar lo que importa, y eso lo decide tu plano.</p>
+<p>Aquí quitas una de cada vez y miras por dónde se cuela el error. Después decides si valen seis puertas.</p>
+<section data-laboratorio>
+<h2 id="monta-la-puerta">Monta la puerta</h2>
+<p>El cambio son los códigos de descuento de <a href="doc:un-caso-delicado">Un caso delicado</a>. Antes de empezar se escribieron dos escenarios: con el código del 10 %, un carrito de 50 € se queda en 45 €, y uno de 80 €, en 72 €. El agente trae una solución hecha a la medida del primero, que con 80 € da 70 €, y dice "hecho".</p>
+<ul>
+<li><strong>¿Se decidió antes de que el agente empezara?</strong> Si no: la comprobación se escribió después de ver su trabajo, así que comprueba lo que hizo y no lo que hacía falta, y el carrito de 80 € no estaba.</li>
+<li><strong>¿Se comprueba sin fiarse de lo que diga el agente?</strong> Si no: el agente contó que sus tests pasaban y nadie los ejecutó. Decirlo abrió la puerta.</li>
+<li><strong>¿Está fuera del alcance del agente, de modo que tocarla no le sirva?</strong> Si no: el agente cambió lo que rodea al test, por ejemplo <code>"test": "exit 0"</code> en <code>package.json</code>, y CI ejecutó lo que había en su rama.</li>
+<li><strong>¿Se la ha visto rechazar algo mal hecho, real o puesto a propósito?</strong> Si no: nadie la vio fallar nunca, y deja pasar el error igual que habría dejado pasar cualquier cosa.</li>
+</ul>
+<p data-resultado="cierra">Con las cuatro respuestas en sí, la puerta dice que no: el carrito de 80 € falla, el error vuelve al agente y tú ni te enteras.</p>
+<p data-resultado="abre">Con alguna en no, la puerta se abre y el error llega a producción.</p>
+</section>
+<h2 id="seis-puertas">Seis puertas. ¿Valen?</h2>
+<aside data-cruzar data-caso>
+<p>El agente ejecuta los tests en su propia sesión y te dice que pasan.</p>
+<ul>
+<li>Vale.</li>
+<li data-bien>No vale.</li>
+</ul>
+<p data-si="bien">Eso es: sigue siendo su palabra. Que los ejecute otro, sea CI, un motor o tú en una copia limpia.</p>
+<p data-si="mal">No: sigue siendo su palabra. Que los ejecute otro, sea CI, un motor o tú en una copia limpia.</p>
+</aside>
+<aside data-cruzar data-caso>
+<p>Los tests del cobro los escribió otra sesión antes de empezar, y viste fallar uno a propósito. CI es obligatorio en una rama protegida, y un paso de CI comprueba que ni los tests ni lo que los rodea cambiaron respecto a lo aprobado.</p>
+<ul>
+<li data-bien>Vale.</li>
+<li>No vale.</li>
+</ul>
+<p data-si="bien">Eso es: se decidió antes, la ejecuta otro, está fuera de su alcance y ya la has visto cerrar. Sin ese paso que compara con lo aprobado no bastaría, porque CI ejecuta lo que hay en la rama del agente.</p>
+<p data-si="mal">Sí vale: se decidió antes, la ejecuta otro, está fuera de su alcance y ya la has visto cerrar. Lo que la sostiene es el paso que compara los tests, y lo que los rodea, con lo aprobado.</p>
+</aside>
+<aside data-cruzar data-caso>
+<p>Un linter que lleva meses en el repositorio y nunca ha marcado nada.</p>
+<ul>
+<li>Vale.</li>
+<li data-bien>No vale todavía.</li>
+</ul>
+<p data-si="bien">Eso es: una puerta que nunca cierra no es una puerta. Ponle delante algo mal hecho y mira si lo rechaza.</p>
+<p data-si="mal">Todavía no: una puerta que nunca cierra no es una puerta. Ponle delante algo mal hecho y mira si lo rechaza.</p>
+</aside>
+<aside data-cruzar data-caso>
+<p>Ves el diff y le pides al mismo agente que escriba tests para lo que ha hecho.</p>
+<ul>
+<li data-bien>No vale.</li>
+<li>Vale.</li>
+</ul>
+<p data-si="bien">Eso es: llega después y la escribe quien cruza. Comprobará lo que hizo, no lo que hacía falta.</p>
+<p data-si="mal">No: llega después y la escribe quien cruza. Comprobará lo que hizo, no lo que hacía falta.</p>
+</aside>
+<aside data-cruzar data-caso>
+<p>Otro agente, con el contexto limpio, ejecuta el cambio. Ya cazó un fallo que le pusiste a propósito, y cada hallazgo suyo trae su cita y la orden que lo reproduce.</p>
+<ul>
+<li data-bien>Vale.</li>
+<li>No vale.</li>
+</ul>
+<p data-si="bien">Eso es: es un vigilante, y tampoco se toma su palabra, porque cada hallazgo trae con qué comprobarlo. Sirve como comprobación, aunque su aprobación nunca cuenta como la de una persona.</p>
+<p data-si="mal">Sí vale: es un vigilante, y tampoco se toma su palabra, porque cada hallazgo trae con qué comprobarlo. Eso sí, su aprobación nunca cuenta como la de una persona.</p>
+</aside>
+<aside data-cruzar data-caso>
+<p>Cada regla tiene un solo test, a la vista del agente. Todos pasan, pero el código dice <code>if (nombre === "Ana")</code> y devuelve justo lo que el test espera.</p>
+<ul>
+<li>Vale.</li>
+<li data-bien>No vale.</li>
+</ul>
+<p data-si="bien">Eso es: la engaña desde el código, sin tocar el test. La paran más casos por regla, ejemplos que el agente no ve o un vigilante que ejecute el cambio con otros valores.</p>
+<p data-si="mal">No: la engaña desde el código, sin tocar el test. La paran más casos por regla, ejemplos que el agente no ve o un vigilante que ejecute el cambio con otros valores.</p>
+</aside>
+<p class="sigue">Monta la tuya, sin skills, en <a href="doc:empieza-hoy">Una puerta a mano</a>, y mira el resto de las trampas en <a href="doc:como-se-engana-una-puerta">Cómo se engaña una puerta</a>.</p>
