@@ -107,9 +107,9 @@ graders:
     pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
     match: not_contains
     weight: 2
-  - name: stays-under-100-words
+  - name: stays-under-150-words
     type: regex
-    pattern: '^\s*(?:\S+\s+){99}\S'
+    pattern: '^\s*(?:\S+\s+){149}\S'
     match: not_contains
   - name: records-any-question-before-sending
     type: regex

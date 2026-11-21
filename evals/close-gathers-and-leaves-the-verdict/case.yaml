@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: close-gathers-and-leaves-the-verdict
-description: "A shop whose cart is in use, with a brief that said what was expected, the signal and the export where it would be looked at. The owner asks how the cart went and tells the orchestrator to decide. It loads gdd-close, reads the export the brief named, records the question and sends one message under 100 words with what was expected, the figures with where they come from, and the question with its three answers. It proposes no verdict and records none: that one is the owner's."
+description: "A shop whose cart is in use, with a brief that said what was expected, the signal and the export where it would be looked at. The owner asks how the cart went and tells the orchestrator to decide. It loads gdd-close, reads the export the brief named, records the question and sends one message under 150 words with what was expected, the figures with where they come from, and the question with its three answers. It proposes no verdict and records none: that one is the owner's."
 tags: [orchestrator, close, person]
 runs: 3
 execution:
@@ -90,9 +90,9 @@ graders:
     pattern: '(?:\bthe builder\b|\bgates? passed\b|\btests? pass(?:ed)?\b|\blas pruebas pasa(?:n|ron)\b|\bel constructor\b|\blas puertas\b)'
     flags: i
     match: not_contains
-  - name: stays-under-100-words
+  - name: stays-under-150-words
     type: regex
-    pattern: '^\s*(?:\S+\s+){99}\S'
+    pattern: '^\s*(?:\S+\s+){149}\S'
     match: not_contains
     weight: 2
   - name: writes-no-line-of-the-log-by-hand

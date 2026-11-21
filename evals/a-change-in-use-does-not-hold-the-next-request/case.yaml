@@ -71,9 +71,9 @@ graders:
     flags: im
     match: not_contains
     weight: 2
-  - name: stays-under-100-words
+  - name: stays-under-150-words
     type: regex
-    pattern: '^\s*(?:\S+\s+){99}\S'
+    pattern: '^\s*(?:\S+\s+){149}\S'
     match: not_contains
     weight: 2
   - name: writes-no-line-of-the-log-by-hand

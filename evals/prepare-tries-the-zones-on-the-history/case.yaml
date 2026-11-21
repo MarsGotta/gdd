@@ -92,9 +92,9 @@ graders:
     target: { source: file, path: gdd/log/blueprint.engine.jsonl }
     pattern: '"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"prepare"'
     weight: 1
-  - name: stays-under-200-words
+  - name: stays-under-250-words
     type: regex
-    pattern: '^\s*(?:\S+\s+){199}\S'
+    pattern: '^\s*(?:\S+\s+){249}\S'
     match: not_contains
   - name: records-the-question-before-sending
     type: regex

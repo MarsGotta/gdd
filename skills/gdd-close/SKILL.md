@@ -30,7 +30,7 @@ Go to the place the brief named and read the signal there.
 
 ## Asking
 
-Record the question first, with the `gdd ask <id> --of close` that `gdd close <id>` printed. Then send one message under 100 words, in the person's language and in their product's words:
+Record the question first, with the `gdd ask <id> --of close` that `gdd close <id>` printed. Then send one message under 150 words, in the person's language and in their product's words:
 
     <What was expected, as their brief said it.>
     <What is seen, each fact with where it comes from and its date.>

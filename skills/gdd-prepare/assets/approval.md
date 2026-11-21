@@ -1,6 +1,6 @@
 # The message that asks for the approval
 
-It is often the first long message the person gets from you, and the one where they decide whether to trust the plan. Write it for them, in their language and their words, as the `gdd` skill's reference on writing to the person says: whole sentences, never notes. Keep it under 200 words: if it doesn't fit, leave out what is in the files, never the words that join the ideas.
+It is often the first long message the person gets from you, and the one where they decide whether to trust the plan. Write it for them, in their language and their words, as the `gdd` skill's reference on writing to the person says: whole sentences, never notes. Keep it under 250 words: if it doesn't fit, leave out what is in the files, never the words that join the ideas.
 
     Your project is ready for you to approve. Nothing is final and nothing gets built until you do.
 
