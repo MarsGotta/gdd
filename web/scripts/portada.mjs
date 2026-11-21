@@ -10,7 +10,7 @@ const visto = ic('<path d="M20 6 9 17l-5-5"></path>');
 
 // A wall with its door, drawn above each room; it opens as the room comes into view.
 const muro = (derecha) => `<div class="g-wall${derecha ? ' g-wall--r' : ''}"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>`;
-const sala = (cuerpo, { derecha = false, clase = '', id = '' } = {}) => `<section class="g-sec${clase}"${id ? ` id="${id}"` : ''}>
+const sala = (cuerpo, { derecha = false, clase = '', id = '', lamina = false } = {}) => `<section class="g-sec${clase}"${id ? ` id="${id}"` : ''}${lamina ? ' data-gdd-sheet' : ''}>
 <span class="g-axis" aria-hidden="true"></span>
 <div class="g-wrap">${muro(derecha)}<div class="g-in">${cuerpo}</div></div>
 </section>`;
@@ -37,7 +37,7 @@ export const portada = ({ tr, ruta, menu, texto, frase, interior, manifiesto, pl
   const recorrido = tr('recorrido', 'walkthrough');
   const g = 'la-idea';
 
-  const heroe = `<section class="g-blue g-hero" data-ki-color-scheme="dark" aria-labelledby="portada-titulo">
+  const heroe = `<section class="g-blue g-hero" data-gdd-sheet aria-labelledby="portada-titulo">
 <div class="g-wrap">
   <div class="g-plan">
     <div class="g-room">
@@ -143,7 +143,7 @@ export const portada = ({ tr, ruta, menu, texto, frase, interior, manifiesto, pl
       tocaVerde: interior(g, tr('Nada: pides el cambio', 'Nothing: you ask for the change')),
       tocaAmarillo: interior(g, tr('Aprobar sus reglas antes', 'Approve its rules before')),
       tocaRojo: interior(g, tr('Aprobar sus reglas y revisar', 'Approve its rules, and review')),
-    })}`, { clase: ' g-blue g-rec', id: recorrido });
+    })}`, { clase: ' g-blue g-rec', id: recorrido, lamina: true });
 
   const filas = [
     [tr('Revisas cada diff, o ninguno.', 'You review every diff, or none.'), tr('Revisas donde tu plano lo pide.', 'You review where your blueprint asks for it.')],
@@ -230,7 +230,7 @@ export const portada = ({ tr, ruta, menu, texto, frase, interior, manifiesto, pl
     ['manos-a-la-obra', tr('Cuatro puertas y cuatro cambios, de menos a más riesgo.', 'Four gates and four changes, from less to more risk.')],
     ['documentacion', tr('Empieza por la idea y sigue hasta donde te haga falta.', 'Start with the idea and go as far as you need.')],
   ];
-  const final = `<section class="g-blue g-last" data-ki-color-scheme="dark">
+  const final = `<section class="g-blue g-last" data-gdd-sheet>
 <span class="g-axis" aria-hidden="true"></span>
 <div class="g-wrap">${muro(true)}<div class="g-in">
   <div class="g-end">

@@ -8,8 +8,10 @@
 @font-face { font-family: "Archivo"; src: url("/assets/archivo-italic.woff2") format("woff2-variations"); font-weight: 100 900; font-stretch: 62% 125%; font-style: italic; font-display: swap; }
 @font-face { font-family: "JetBrains Mono"; src: url("/assets/jetbrains-mono.woff2") format("woff2-variations"); font-weight: 100 800; font-style: normal; font-display: swap; }
 
-:root {
-  --papel: var(--ki-surface-s1);
+/* The site's names for the theme's colours. They are declared on the cyanotype sheet too, so that
+   inside it they take its values and not the page's. */
+:root, [data-gdd-sheet] {
+  --papel: var(--ki-surface-base);
   --tinta: var(--ki-text-high-em);
   --muro: var(--ki-text-high-em);
   --tinta-2: var(--ki-text-med-em);
@@ -21,6 +23,9 @@
   --amarillo: var(--ki-surface-warning-med-em);
   --rojo: var(--ki-surface-danger-med-em);
   --persona: var(--gdd-person);
+}
+
+:root {
   --suelo-mezcla: 9%;
 
   --sans: var(--ki-typography-family-body);
@@ -42,13 +47,13 @@
 
 /* Dark: the system decides until the reader chooses with the button in the header, which sets
    data-ki-color-scheme on <html>. The colours follow by themselves (light-dark() in the tokens);
-   only a percentage has to be said again: on the blue sheet the floor of each risk takes more of
-   its colour, or the three would read as one blue. On paper it is always ink on film. */
+   only a percentage has to be said again: on night ink the floor of each risk takes more of its
+   colour, as the theme's own tints do, or it would barely show. On paper it is always ink on film. */
 @media screen and (prefers-color-scheme: dark) {
-  :root:not([data-ki-color-scheme="light"]) { --suelo-mezcla: 26%; }
+  :root:not([data-ki-color-scheme="light"]) { --suelo-mezcla: 18%; }
 }
 @media screen {
-  :root[data-ki-color-scheme="dark"] { --suelo-mezcla: 26%; }
+  :root[data-ki-color-scheme="dark"] { --suelo-mezcla: 18%; }
 }
 /* On a touch screen, Kimen's controls grow to 44 by 44, as its tokens propose. */
 @media (pointer: coarse) {
@@ -430,6 +435,7 @@ li::marker { color: var(--tinta-3); }
 
 /* --- Footer --- */
 .pie { margin-top: clamp(24px, 4vw, 48px); border-top: 6px solid var(--muro); }
+.pie--plano { margin-top: 0; background: var(--ki-surface-s0); color: var(--tinta); }
 .pie__dentro { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 24px clamp(24px, 4vw, 56px); padding-block: 28px 44px; font-size: 1rem; line-height: 1.5; color: var(--tinta-2); }
 .pie p { margin: 0 0 .6em; }
 .pie .logo { color: var(--tinta); margin-bottom: 6px; }

@@ -7,9 +7,12 @@
  * scheme-dependent value is one light-dark() pair, so data-ki-color-scheme="light|dark" works
  * on any element.
  *
- * Two schemes, one drawing:
+ * Two schemes and one sheet:
  *   light  "Delineado"  ink on drafting film
- *   dark   "Cianotipo"  the same sheet as a blueprint: white line on Prussian blue
+ *   dark   "Nocturno"   pale line on night ink
+ *   sheet  "Cianotipo"  white line on Prussian blue. Not a scheme: a set of surfaces put on a whole
+ *                       region with data-gdd-sheet (the home page's hero and its last room, the
+ *                       header above them). It looks the same in both schemes.
  */
 
 :root[data-ki-theme='gdd'],
@@ -30,14 +33,23 @@
   --ki-color-gray-900: #1c2738;
   --ki-color-gray-950: #10192a;
 
-  /* Cyanotype: the dark scheme is a blue ground, not a charcoal one */
-  --ki-color-dark-400: #4a7cc5;
-  --ki-color-dark-500: #3466b1;
-  --ki-color-dark-600: #22559d;
-  --ki-color-dark-700: #12458b;
-  --ki-color-dark-800: #063879;
-  --ki-color-dark-900: #002c68;
-  --ki-color-dark-950: #002356;
+  /* Night ink: the dark neutrals. Blue-black, never pitch black. */
+  --ki-color-dark-400: #5b677b;
+  --ki-color-dark-500: #404b5e;
+  --ki-color-dark-600: #2d3748;
+  --ki-color-dark-700: #1f2838;
+  --ki-color-dark-800: #161e2c;
+  --ki-color-dark-900: #0f1622;
+  --ki-color-dark-950: #090e19;
+
+  /* Cyanotype: the blueprint ground of the sheet (theme extension) */
+  --gdd-cyan-400: #4a7cc5;
+  --gdd-cyan-500: #3466b1;
+  --gdd-cyan-600: #22559d;
+  --gdd-cyan-700: #12458b;
+  --gdd-cyan-800: #063879;
+  --gdd-cyan-900: #002c68;
+  --gdd-cyan-950: #002356;
 
   /* Blue ink: the brand ramp */
   --ki-color-brand-50: #f0f6ff;
@@ -60,12 +72,12 @@
   --ki-color-brand-500-alpha-3: rgb(59 125 228 / 0.24);
   --ki-color-brand-500-alpha-4: rgb(59 125 228 / 0.4);
   --ki-color-brand-500-alpha-5: rgb(59 125 228 / 0.56);
-  --ki-color-dark-500-alpha-1: rgb(52 102 177 / 0.1);
-  --ki-color-dark-500-alpha-2: rgb(52 102 177 / 0.18);
-  --ki-color-dark-500-alpha-3: rgb(52 102 177 / 0.24);
-  --ki-color-dark-500-alpha-4: rgb(52 102 177 / 0.36);
-  --ki-color-dark-500-alpha-5: rgb(52 102 177 / 0.52);
-  --ki-color-dark-500-alpha-6: rgb(52 102 177 / 0.64);
+  --ki-color-dark-500-alpha-1: rgb(64 75 94 / 0.1);
+  --ki-color-dark-500-alpha-2: rgb(64 75 94 / 0.18);
+  --ki-color-dark-500-alpha-3: rgb(64 75 94 / 0.24);
+  --ki-color-dark-500-alpha-4: rgb(64 75 94 / 0.36);
+  --ki-color-dark-500-alpha-5: rgb(64 75 94 / 0.52);
+  --ki-color-dark-500-alpha-6: rgb(64 75 94 / 0.64);
   --ki-color-gray-100-alpha-base: rgb(239 243 246 / 0.8);
   --ki-color-success-500-alpha-1: rgb(30 166 98 / 0.12);
   --ki-color-success-500-alpha-2: rgb(30 166 98 / 0.2);
@@ -145,80 +157,78 @@
 
   /* ── Semantic layer ───────────────────────────────────────────────── */
 
-  /* Surfaces. Light paints the page with film (s1); cards and framed figures
-     sit on s0. Dark is the blueprint: s0 is the deepest ground, used for whole
-     sheets, and the page steps one tone up to s1. Text stays at 4.5:1 or more
-     on s0 to s2 in both schemes. */
-  --ki-surface-base: light-dark(var(--ki-color-gray-50), var(--ki-color-dark-700));
-  --ki-surface-s0: light-dark(#ffffff, var(--ki-color-dark-800));
-  --ki-surface-s1: light-dark(var(--ki-color-gray-50), var(--ki-color-dark-700));
-  --ki-surface-s2: light-dark(var(--ki-color-gray-100), #1a4d94);
+  /* Surfaces. Light paints the page with film (s1) and sets framed figures on
+     white (s0). Dark paints it with night ink (s0) and steps up for cards.
+     Text stays at 4.5:1 or more on s0 to s2 in both schemes. */
+  --ki-surface-base: light-dark(var(--ki-color-gray-50), var(--ki-color-dark-900));
+  --ki-surface-s0: light-dark(#ffffff, var(--ki-color-dark-900));
+  --ki-surface-s1: light-dark(var(--ki-color-gray-50), var(--ki-color-dark-800));
+  --ki-surface-s2: light-dark(var(--ki-color-gray-100), var(--ki-color-dark-700));
   --ki-surface-s3: light-dark(var(--ki-color-gray-200), var(--ki-color-dark-600));
   --ki-surface-s4: light-dark(var(--ki-color-gray-300), var(--ki-color-dark-500));
   --ki-surface-s5: light-dark(var(--ki-color-gray-400), var(--ki-color-dark-400));
   --ki-surface-white: #ffffff;
   --ki-surface-black: var(--ki-color-gray-950);
 
-  /* Text. Secondary ink on blue is tinted from the blue, never grey. */
-  --ki-text-high-em: light-dark(var(--ki-color-gray-950), #f3f7fc);
-  --ki-text-med-em: light-dark(#475262, #c8dbf4);
-  --ki-text-low-em: light-dark(#566172, #b5ccef);
+  --ki-text-high-em: light-dark(var(--ki-color-gray-950), #edf0f6);
+  --ki-text-med-em: light-dark(#475262, #b4bfcf);
+  --ki-text-low-em: light-dark(#566172, #9ba7b9);
   --ki-text-base-em: light-dark(var(--ki-color-gray-500), var(--ki-color-dark-400));
   --ki-text-white: #ffffff;
   --ki-text-black: var(--ki-color-gray-950);
 
-  /* Primary: ink fill in light, white sheet in dark. Blue is spent on links,
+  /* Primary: ink fill in light, pale sheet in dark. Blue is spent on links,
      selection and the focus ring. */
   --ki-surface-primary-high-em: light-dark(var(--ki-color-gray-900), #ffffff);
-  --ki-surface-primary-med-em: light-dark(var(--ki-color-gray-950), #f3f7fc);
-  --ki-surface-primary-low-em: light-dark(var(--ki-color-brand-100), var(--ki-color-dark-600));
-  --ki-surface-primary-base-em: light-dark(var(--ki-color-brand-50), #1a4d94);
+  --ki-surface-primary-med-em: light-dark(var(--ki-color-gray-950), #edf0f6);
+  --ki-surface-primary-low-em: light-dark(var(--ki-color-brand-100), var(--ki-color-brand-900));
+  --ki-surface-primary-base-em: light-dark(var(--ki-color-brand-50), #132440);
   --ki-text-primary-on-primary: light-dark(#ffffff, var(--ki-color-dark-950));
-  --ki-text-secondary-on-primary: light-dark(rgb(255 255 255 / 0.84), var(--ki-color-dark-700));
-  --ki-text-primary-on-primary-light: light-dark(var(--ki-color-brand-800), var(--ki-color-brand-50));
-  --ki-text-primary-high-em: light-dark(var(--ki-color-brand-600), var(--ki-color-brand-200));
-  --ki-text-primary-med-em: light-dark(var(--ki-color-brand-700), var(--ki-color-brand-300));
+  --ki-text-secondary-on-primary: light-dark(rgb(255 255 255 / 0.84), var(--ki-color-dark-600));
+  --ki-text-primary-on-primary-light: light-dark(var(--ki-color-brand-800), var(--ki-color-brand-100));
+  --ki-text-primary-high-em: light-dark(var(--ki-color-brand-600), var(--ki-color-brand-300));
+  --ki-text-primary-med-em: light-dark(var(--ki-color-brand-700), var(--ki-color-brand-200));
 
   /* Outlines. Walls are drawn with text-high-em; these are the hairlines. */
-  --ki-outline-high-em: light-dark(var(--ki-color-gray-950), #f3f7fc);
-  --ki-outline-med-em: light-dark(rgb(16 25 42 / 0.26), rgb(243 247 252 / 0.4));
-  --ki-outline-low-em: light-dark(rgb(16 25 42 / 0.14), rgb(243 247 252 / 0.22));
-  --ki-outline-control: light-dark(#78818c, #80a7dd);
-  --ki-outline-primary-med-em: light-dark(var(--ki-color-brand-500), var(--ki-color-brand-300));
-  --ki-outline-primary-low-em: light-dark(var(--ki-color-brand-200), var(--ki-color-dark-500));
+  --ki-outline-high-em: light-dark(var(--ki-color-gray-950), #edf0f6);
+  --ki-outline-med-em: light-dark(rgb(16 25 42 / 0.26), rgb(237 240 246 / 0.3));
+  --ki-outline-low-em: light-dark(rgb(16 25 42 / 0.14), rgb(237 240 246 / 0.16));
+  --ki-outline-control: light-dark(#78818c, #7d8a9d);
+  --ki-outline-primary-med-em: light-dark(var(--ki-color-brand-500), var(--ki-color-brand-400));
+  --ki-outline-primary-low-em: light-dark(var(--ki-color-brand-200), rgb(155 195 252 / 0.28));
 
   /* Risk tones. Status is never colour alone: a word always sits beside it. */
   --ki-surface-success-high-em: light-dark(var(--ki-color-success-700), var(--ki-color-success-300));
   --ki-surface-success-med-em: light-dark(var(--ki-color-success-500), var(--ki-color-success-400));
-  --ki-surface-success-tint: light-dark(var(--ki-color-success-100), color-mix(in oklab, var(--ki-color-success-400) 22%, var(--ki-color-dark-800)));
+  --ki-surface-success-tint: light-dark(var(--ki-color-success-100), color-mix(in oklab, var(--ki-color-success-400) 18%, var(--ki-color-dark-900)));
   --ki-text-success-high-em: light-dark(var(--ki-color-success-700), var(--ki-color-success-300));
   --ki-text-primary-on-success: light-dark(#ffffff, var(--ki-color-dark-950));
 
   --ki-surface-warning-high-em: light-dark(var(--ki-color-warning-700), var(--ki-color-warning-300));
   --ki-surface-warning-med-em: light-dark(var(--ki-color-warning-500), var(--ki-color-warning-400));
-  --ki-surface-warning-tint: light-dark(var(--ki-color-warning-100), color-mix(in oklab, var(--ki-color-warning-400) 22%, var(--ki-color-dark-800)));
+  --ki-surface-warning-tint: light-dark(var(--ki-color-warning-100), color-mix(in oklab, var(--ki-color-warning-400) 18%, var(--ki-color-dark-900)));
   --ki-text-warning-high-em: light-dark(var(--ki-color-warning-700), var(--ki-color-warning-300));
 
   --ki-surface-danger-high-em: light-dark(var(--ki-color-danger-600), var(--ki-color-danger-300));
   --ki-surface-danger-med-em: light-dark(var(--ki-color-danger-500), var(--ki-color-danger-400));
-  --ki-surface-danger-tint: light-dark(var(--ki-color-danger-100), color-mix(in oklab, var(--ki-color-danger-400) 24%, var(--ki-color-dark-800)));
-  --ki-text-danger-high-em: light-dark(var(--ki-color-danger-600), #feb4aa);
+  --ki-surface-danger-tint: light-dark(var(--ki-color-danger-100), color-mix(in oklab, var(--ki-color-danger-400) 20%, var(--ki-color-dark-900)));
+  --ki-text-danger-high-em: light-dark(var(--ki-color-danger-600), var(--ki-color-danger-300));
   --ki-text-primary-on-danger: light-dark(#ffffff, var(--ki-color-dark-950));
 
   /* States */
-  --ki-surface-hover-overlay: light-dark(rgb(16 25 42 / 0.06), rgb(243 247 252 / 0.1));
+  --ki-surface-hover-overlay: light-dark(rgb(16 25 42 / 0.06), rgb(237 240 246 / 0.08));
   --ki-surface-disabled-low-em: light-dark(var(--ki-color-gray-200), var(--ki-color-dark-700));
-  --ki-overlay-high-em: light-dark(rgb(16 25 42 / 0.42), rgb(0 18 48 / 0.62));
+  --ki-overlay-high-em: light-dark(rgb(16 25 42 / 0.42), rgb(4 8 16 / 0.66));
 
   /* Focus: a solid ring plus a soft glow, as in Kimen's default theme */
-  --ki-focus-ring-color: light-dark(var(--ki-color-brand-600), #ffffff);
-  --ki-focus-primary: light-dark(rgb(28 95 203 / 0.22), rgb(255 255 255 / 0.28));
+  --ki-focus-ring-color: light-dark(var(--ki-color-brand-600), var(--ki-color-brand-300));
+  --ki-focus-primary: light-dark(rgb(28 95 203 / 0.22), rgb(155 195 252 / 0.3));
 
   /* Depth: borders first. One shadow scale, for things that float. */
-  --ki-elevation-e1: 0 1px 2px light-dark(rgb(16 25 42 / 0.08), rgb(0 12 36 / 0.4));
-  --ki-elevation-e2: 0 2px 6px light-dark(rgb(16 25 42 / 0.1), rgb(0 12 36 / 0.45));
-  --ki-elevation-e3: 0 6px 18px light-dark(rgb(16 25 42 / 0.12), rgb(0 12 36 / 0.5));
-  --ki-elevation-e4: 0 16px 40px light-dark(rgb(16 25 42 / 0.16), rgb(0 12 36 / 0.55));
+  --ki-elevation-e1: 0 1px 2px light-dark(rgb(16 25 42 / 0.08), rgb(0 0 0 / 0.4));
+  --ki-elevation-e2: 0 2px 6px light-dark(rgb(16 25 42 / 0.1), rgb(0 0 0 / 0.45));
+  --ki-elevation-e3: 0 6px 18px light-dark(rgb(16 25 42 / 0.12), rgb(0 0 0 / 0.5));
+  --ki-elevation-e4: 0 16px 40px light-dark(rgb(16 25 42 / 0.16), rgb(0 0 0 / 0.55));
   --ki-effect-component-backdrop-blur: 0;
 
   /* ── GDD drawing conventions (theme extension, not Kimen tokens) ──── */
@@ -228,11 +238,94 @@
   --gdd-line: 1px;            /* swing arcs, dimension lines */
   --gdd-door: 84px;           /* a door opening */
   --gdd-door-swing: 720ms;    /* one leaf, one swing */
-  /* The person deciding. In the blueprint everything is blue, so the person takes a deeper tint
-     than the ink: it stays apart from the white lines and reads at 5:1 on the sheet. */
+  /* The person deciding: the blue ink, a tint apart from the lines of the drawing. */
   --gdd-person: light-dark(var(--ki-color-brand-600), var(--ki-color-brand-300));
   /* A washed panel behind code and highlighted columns, one step off the page in each scheme. */
-  --gdd-wash: light-dark(var(--ki-color-gray-200), #1a4d94);
+  --gdd-wash: light-dark(var(--ki-color-gray-200), var(--ki-color-dark-700));
+}
+
+/* ── The cyanotype sheet ──────────────────────────────────────────────
+   A blueprint laid on the page: Prussian blue ground, white line, secondary ink tinted from the
+   blue. The same values in light and in dark, so they are plain values, not light-dark() pairs.
+   The dark ramp is the cyan one inside it too, so the tokens a Kimen component derives from it
+   (the hover of a quiet button, among others) stay blue on the sheet. On paper the regions take
+   the page's light scheme. */
+@media screen {
+[data-gdd-sheet] {
+  color-scheme: dark;
+  --ki-color-dark-400: var(--gdd-cyan-400);
+  --ki-color-dark-500: var(--gdd-cyan-500);
+  --ki-color-dark-600: var(--gdd-cyan-600);
+  --ki-color-dark-700: var(--gdd-cyan-700);
+  --ki-color-dark-800: var(--gdd-cyan-800);
+  --ki-color-dark-900: var(--gdd-cyan-900);
+  --ki-color-dark-950: var(--gdd-cyan-950);
+  --ki-color-dark-500-alpha-1: rgb(52 102 177 / 0.1);
+  --ki-color-dark-500-alpha-2: rgb(52 102 177 / 0.18);
+  --ki-color-dark-500-alpha-3: rgb(52 102 177 / 0.24);
+  --ki-color-dark-500-alpha-4: rgb(52 102 177 / 0.36);
+  --ki-color-dark-500-alpha-5: rgb(52 102 177 / 0.52);
+  --ki-color-dark-500-alpha-6: rgb(52 102 177 / 0.64);
+
+  --ki-surface-base: var(--gdd-cyan-700);
+  --ki-surface-s0: var(--gdd-cyan-800);
+  --ki-surface-s1: var(--gdd-cyan-700);
+  --ki-surface-s2: #1a4d94;
+  --ki-surface-s3: var(--gdd-cyan-600);
+  --ki-surface-s4: var(--gdd-cyan-500);
+  --ki-surface-s5: var(--gdd-cyan-400);
+
+  --ki-text-high-em: #f3f7fc;
+  --ki-text-med-em: #c8dbf4;
+  --ki-text-low-em: #b5ccef;
+  --ki-text-base-em: var(--gdd-cyan-400);
+
+  --ki-surface-primary-high-em: #ffffff;
+  --ki-surface-primary-med-em: #f3f7fc;
+  --ki-surface-primary-low-em: var(--gdd-cyan-600);
+  --ki-surface-primary-base-em: #1a4d94;
+  --ki-text-primary-on-primary: var(--gdd-cyan-950);
+  --ki-text-secondary-on-primary: var(--gdd-cyan-700);
+  --ki-text-primary-on-primary-light: var(--ki-color-brand-50);
+  --ki-text-primary-high-em: var(--ki-color-brand-200);
+  --ki-text-primary-med-em: var(--ki-color-brand-300);
+
+  --ki-outline-high-em: #f3f7fc;
+  --ki-outline-med-em: rgb(243 247 252 / 0.4);
+  --ki-outline-low-em: rgb(243 247 252 / 0.22);
+  --ki-outline-control: #80a7dd;
+  --ki-outline-primary-med-em: var(--ki-color-brand-300);
+  --ki-outline-primary-low-em: var(--gdd-cyan-500);
+
+  --ki-surface-success-high-em: var(--ki-color-success-300);
+  --ki-surface-success-med-em: var(--ki-color-success-400);
+  --ki-surface-success-tint: color-mix(in oklab, var(--ki-color-success-400) 22%, var(--gdd-cyan-800));
+  --ki-text-success-high-em: var(--ki-color-success-300);
+  --ki-text-primary-on-success: var(--gdd-cyan-950);
+  --ki-surface-warning-high-em: var(--ki-color-warning-300);
+  --ki-surface-warning-med-em: var(--ki-color-warning-400);
+  --ki-surface-warning-tint: color-mix(in oklab, var(--ki-color-warning-400) 22%, var(--gdd-cyan-800));
+  --ki-text-warning-high-em: var(--ki-color-warning-300);
+  --ki-surface-danger-high-em: var(--ki-color-danger-300);
+  --ki-surface-danger-med-em: var(--ki-color-danger-400);
+  --ki-surface-danger-tint: color-mix(in oklab, var(--ki-color-danger-400) 24%, var(--gdd-cyan-800));
+  --ki-text-danger-high-em: #feb4aa;
+  --ki-text-primary-on-danger: var(--gdd-cyan-950);
+
+  --ki-surface-hover-overlay: rgb(243 247 252 / 0.1);
+  --ki-surface-disabled-low-em: var(--gdd-cyan-700);
+  --ki-overlay-high-em: rgb(0 18 48 / 0.62);
+  --ki-focus-ring-color: #ffffff;
+  --ki-focus-primary: rgb(255 255 255 / 0.28);
+  --ki-elevation-e1: 0 1px 2px rgb(0 12 36 / 0.4);
+  --ki-elevation-e2: 0 2px 6px rgb(0 12 36 / 0.45);
+  --ki-elevation-e3: 0 6px 18px rgb(0 12 36 / 0.5);
+  --ki-elevation-e4: 0 16px 40px rgb(0 12 36 / 0.55);
+
+  /* The person reads at 5:1 on the blue, a deeper tint than the white lines. */
+  --gdd-person: var(--ki-color-brand-300);
+  --gdd-wash: #1a4d94;
+}
 }
 
 /* Kimen's more-contrast mode raises the control outline. The theme sets its own, so it says it

@@ -272,7 +272,7 @@ const otraRuta = (ruta) => {
 // brand, the sections and, as actions, the other language and the light or dark switch. Below
 // 48rem, where the row no longer fits, it folds the sections into a menu (Kimen 0.1.1 needs the
 // attribute written: without it the bar never folds).
-const cabecera = (ruta, enPlano = false) => `<div class="cabecera${enPlano ? ' cabecera--plano' : ''}"${enPlano ? ' data-ki-color-scheme="dark"' : ''}><ki-top-nav class="contenedor" label="${tr('Principal', 'Main')}" navigation-label="${tr('Abrir el menú', 'Open the menu')}" collapse-at="48rem">
+const cabecera = (ruta, enPlano = false) => `<div class="cabecera${enPlano ? ' cabecera--plano' : ''}"${enPlano ? ' data-gdd-sheet' : ''}><ki-top-nav class="contenedor" label="${tr('Principal', 'Main')}" navigation-label="${tr('Abrir el menú', 'Open the menu')}" collapse-at="48rem">
   <a slot="brand" class="logo" href="${rutaInicio()}"${ruta === rutaInicio() ? ' aria-current="page"' : ''}>${marca()}<span>Gate-Driven Development</span></a>
   ${MENU.map((k) => {
     const r = DOCS[k][idioma].ruta;
@@ -283,7 +283,8 @@ const cabecera = (ruta, enPlano = false) => `<div class="cabecera${enPlano ? ' c
   <ki-icon-button slot="actions" class="tema" variant="quaternary" data-tema-boton label="${tr('Cambiar entre claro y oscuro', 'Switch between light and dark')}">${icono('tema')}</ki-icon-button>
 </ki-top-nav></div>`;
 
-const pie = () => `<footer class="pie"><div class="contenedor pie__dentro">
+// On the home page the footer is part of its last room, on the cyanotype sheet.
+const pie = (enPlano = false) => `<footer class="pie${enPlano ? ' pie--plano' : ''}"${enPlano ? ' data-gdd-sheet' : ''}><div class="contenedor pie__dentro">
   <div>
     <a class="logo" href="${rutaInicio()}">${marca()}<span>Gate-Driven Development</span></a>
     <p>${tr('Manifiesto', 'Manifesto')} ${VERSION_TXT}, ${ESTADO_TXT}. ${tr('Skills y capa', 'Skills and layer')} ${SKILLS}, ${tr('contrato', 'contract')} <code>${CONTRATO}</code>. ${FIRMA}.</p>
@@ -338,7 +339,7 @@ ${datos({ ruta, titulo, descripcion, inicial: ruta === rutaInicio() })}`
 <meta name="description" content="${descripcion}">
 <meta name="author" content="Marcela Gotta">
 <meta name="theme-color" content="${cabeceraPlano ? '#063879' : '#f7f9fb'}" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="${cabeceraPlano ? '#063879' : '#12458b'}" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="${cabeceraPlano ? '#063879' : '#0f1622'}" media="(prefers-color-scheme: dark)">
 ${buscadores}
 ${enlacesCabeza}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -367,7 +368,7 @@ ${cabecera(ruta, cabeceraPlano)}
 <main id="contenido">
 ${cuerpo}
 </main>
-${pie()}
+${pie(cabeceraPlano)}
 <script src="/assets/kimen.js?v=${VERSION}" type="module"></script>
 <script src="/assets/sitio.js?v=${VERSION}" defer></script>
 ${scripts.map((s) => `<script src="/assets/${s}?v=${VERSION}" defer></script>`).join('\n')}

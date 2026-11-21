@@ -16,7 +16,7 @@
     botonTema?.setAttribute('label', esOscuro() ? t('Pasar a modo claro', 'Switch to light mode') : t('Pasar a modo oscuro', 'Switch to dark mode'));
     if (!raiz.dataset.kiColorScheme) return;
     if (document.querySelector('.cabecera--plano')) return;
-    document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => { meta.content = esOscuro() ? '#12458b' : '#f7f9fb'; });
+    document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => { meta.content = esOscuro() ? '#0f1622' : '#f7f9fb'; });
   };
   botonTema?.addEventListener('click', () => {
     raiz.classList.add('sin-transicion');
