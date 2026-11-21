@@ -82,6 +82,55 @@ pub(super) fn pending_standing_checks(ctx: &Ctx) -> R<Option<state::Next>> {
     )
 }
 
+/// The setup items of the backlog a change would go ahead of, once changes can start: the own
+/// gate of a zone it touches, or a check its color asks for and its files would run. They are
+/// named and nothing is refused: whether the zone already has behavior to test, or the check
+/// something to judge, is the orchestrator's to say.
+pub(super) fn setup_ahead(
+    ctx: &Ctx,
+    bp: &Blueprint,
+    change: &color::Colored,
+    files: &[String],
+    out: &mut Out,
+) {
+    let text = read_backlog(ctx).map(|(_, text)| text).unwrap_or_default();
+    let items = backlog::items(&text);
+    let mut ahead = vec![];
+    // Before the standing checks hold no change starts, so there is nothing to go ahead of.
+    let waiting = items
+        .iter()
+        .filter(|i| i.state != "done" && backlog::standing_checks(&items) == Some("done"));
+    for item in waiting {
+        let (id, state) = (&item.id, &item.state);
+        let what = if let Some(check) = id.strip_prefix("standing-checks-") {
+            let runs = |k: &crate::blueprint::Check| {
+                k.when.is_empty()
+                    || git::match_paths(&ctx.root, files, &k.when).map_or(true, |m| !m.is_empty())
+            };
+            (bp.color_asks(&change.color, check) && bp.checks().iter().any(|k| k.id == check && runs(k)))
+                .then(|| {
+                    format!(
+                        "the check {check}, which {} asks for, isn't set up yet ({id}, {state}): it comes before a change that needs it, unless it still waits for something to judge",
+                        change.color
+                    )
+                })
+        } else {
+            super::launching::gate_zone(id)
+                .filter(|zone| change.zones.contains_key(*zone))
+                .map(|zone| {
+                    format!(
+                        "zone {zone}'s own gate isn't set up yet ({id}, {state}): once the zone has behavior to test, it comes before any further change there"
+                    )
+                })
+        };
+        if let Some(what) = what {
+            out.say(format!("{what}: gdd next {id}"));
+            ahead.push(id.clone());
+        }
+    }
+    out.fact("setup_ahead", json!(ahead));
+}
+
 struct Scenario<'a> {
     line: usize,
     title: &'a str,
@@ -647,6 +696,13 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
             ));
         }
         out.say(format!("wrote the brief step, line {line}"));
+        // Said once, when the change starts: a later version of its brief starts nothing.
+        if log_kind(id) == LogKind::Change && l.state.progress.brief_line.is_none() {
+            let files: Vec<String> = color::planned_paths(&ctx.root, a.paths)
+                .map(|stands| stands.into_iter().flat_map(|(_, files)| files).collect())
+                .unwrap_or_default();
+            setup_ahead(ctx, &l.bp, &c, &files, out);
+        }
         if let Some(closes) = closes {
             out.say(format!(
                 "Tell the person what will close it, in a line: {closes}"

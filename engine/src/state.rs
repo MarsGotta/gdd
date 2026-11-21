@@ -174,6 +174,9 @@ pub struct Progress {
     pub read_since_red: bool,
     /// The parts of a split reading read since then.
     pub parts_read: Vec<String>,
+    /// What the readings of the brief as it now stands left under `MISSING:`, until a version
+    /// with other files or the seal of its checks.
+    pub gaps: Vec<String>,
     /// The seal's moves the log records with a `seal` event.
     /// Whether the log knows a seal: a `seal` event, a brief step with its seal, or checks sealed.
     pub sealed_any: bool,
@@ -278,6 +281,13 @@ impl Progress {
             } else {
                 !self.parts_read.is_empty()
             }
+    }
+
+    /// Whether a reading left gaps that no new version of the brief answers. They are settled
+    /// before the person is asked and before its tests are written. A change with no brief file
+    /// has no version to write and no tests of its own, so nothing holds it.
+    pub fn gaps_open(&self) -> bool {
+        !self.gaps.is_empty() && self.has_brief()
     }
 
     pub fn has_brief(&self) -> bool {
@@ -493,7 +503,12 @@ impl Progress {
                 self.zones = strings(&v["color"]["zones"]);
                 self.uncovered = strings(&v["color"]["uncovered"]);
                 self.why = str_of(&v["color"], "why").to_string();
-                self.brief_files = hashes(&v["files"]);
+                // A step that logs the same files again is no new version: it answers nothing.
+                let files = hashes(&v["files"]);
+                if files != self.brief_files {
+                    self.gaps.clear();
+                }
+                self.brief_files = files;
                 self.closing = v.get("closing").filter(|c| c.is_object()).cloned();
                 self.unchecked = v["unchecked"]
                     .as_array()
@@ -532,6 +547,8 @@ impl Progress {
                     }
                 } else {
                     self.checks_done = true;
+                    // The checks role got past what a reading found missing.
+                    self.gaps.clear();
                     self.checks_stopped = 0;
                     self.unrecorded.clear();
                     if let Some(c) = v["seal"]["commit"].as_str() {
@@ -645,6 +662,16 @@ impl Progress {
             }
             "reading" => {
                 self.readings_n += 1;
+                // Before the checks are sealed, what it found missing waits for an answer. The
+                // lines reach the orchestrator and the person, so they are bounded, each once.
+                if !self.checks_done {
+                    let missing = strings(&v["missing"]);
+                    for gap in crate::report::bounded_lines(missing.iter().map(String::as_str)) {
+                        if self.gaps.len() < 12 && !self.gaps.contains(&gap) {
+                            self.gaps.push(gap);
+                        }
+                    }
+                }
                 match v["part"].as_str() {
                     Some(part) => self.parts_read.push(part.into()),
                     None if self.red_since.is_some_and(|l| l < line) => self.read_since_red = true,

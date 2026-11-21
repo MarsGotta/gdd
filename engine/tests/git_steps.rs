@@ -228,6 +228,72 @@ fn a_color_that_rose_comes_before_the_findings_about_a_check() {
 }
 
 #[test]
+fn a_change_is_told_what_its_zone_still_has_to_set_up() {
+    let r = Repo::new();
+    let more = "| gates-core | The core's own gate | yellow | 1 | | todo |\n\
+        | gates-ui-2 | A second gate for the pages | green | 1 | | todo |\n\
+        | standing-checks-slow | The slow check | green | 1 | | todo |\n\
+        | standing-checks-e2e | A check no color asks for | green | 1 | | todo |\n";
+    r.write("gdd/backlog.md", &format!("{BACKLOG}{more}"));
+    r.commit("More to set up");
+    let ahead = |paths: &str| r.gdd(&["color", "--paths", paths]);
+    // Its zone's own gate. The slow check only runs on the pages, so it isn't named here.
+    let c = ahead("src/core/app.txt");
+    assert_eq!(
+        c.facts["setup_ahead"],
+        serde_json::json!(["gates-core"]),
+        "{}",
+        c.out
+    );
+    assert!(
+        c.has("zone core's own gate isn't set up yet (gates-core, todo)")
+            && c.has("gdd next gates-core"),
+        "{}",
+        c.out
+    );
+    // On the pages: their second gate, and the check their color asks for and their files run.
+    let c = ahead("src/ui/page.txt");
+    assert_eq!(
+        c.facts["setup_ahead"],
+        serde_json::json!(["gates-ui-2", "standing-checks-slow"]),
+        "{}",
+        c.out
+    );
+    assert!(c.has("the check slow, which green asks for"), "{}", c.out);
+    // Red asks for no slow check, and its zone has no gate of its own to set up.
+    let c = ahead("src/pay/pay.txt");
+    assert_eq!(c.facts["setup_ahead"], serde_json::json!([]), "{}", c.out);
+    // A setup log goes ahead of nothing.
+    let c = r.gdd(&["color", "gates-core", "--paths", "src/core/app.txt"]);
+    assert!(c.facts["setup_ahead"].is_null(), "{}", c.out);
+    // It is said again when the change starts, once, and the change starts all the same.
+    let b = r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);
+    assert_eq!(b.code, 0, "{}", b.out);
+    assert_eq!(
+        b.facts["setup_ahead"],
+        serde_json::json!(["gates-ui-2", "standing-checks-slow"]),
+        "{}",
+        b.out
+    );
+    let again = r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);
+    assert_eq!(again.code, 0, "{}", again.out);
+    assert!(again.facts["setup_ahead"].is_null(), "{}", again.out);
+    assert_eq!(r.log_lines("g1").len(), 2);
+    // What is set up is no longer named.
+    let done = more.replace("| todo |", "| done |");
+    r.write("gdd/backlog.md", &format!("{BACKLOG}{done}"));
+    let c = ahead("src/core/app.txt");
+    assert_eq!(c.facts["setup_ahead"], serde_json::json!([]), "{}", c.out);
+    // And before the standing checks hold, no change starts: nothing to go ahead of, as when
+    // Prepare tries the zones.
+    let before = BACKLOG.replace("| red | 0 | | done |", "| red | 0 | | todo |");
+    assert_ne!(before, BACKLOG);
+    r.write("gdd/backlog.md", &format!("{before}{more}"));
+    let c = ahead("src/core/app.txt");
+    assert_eq!(c.facts["setup_ahead"], serde_json::json!([]), "{}", c.out);
+}
+
+#[test]
 fn zones_find_a_pathspec_that_matches_nothing_and_what_no_zone_covers() {
     let bp = BLUEPRINT.replace(
         "      - ':(glob)src/ui/**'\n",

@@ -466,6 +466,21 @@ fn before_the_build(
         };
         return Some(n("reading", say, format!("gdd launch {id} reading")));
     }
+    if p.gaps_open() {
+        return Some(n(
+            "brief",
+            format!(
+                "the reading left {}: answer each in a new version of the brief, sealed (gdd seal) and logged (gdd brief), before {}",
+                gaps_said(&p.gaps),
+                if asks_approval && !p.approved() {
+                    "asking the person to approve it"
+                } else {
+                    "its checks"
+                }
+            ),
+            format!("gdd brief {id} <files of the new version> --paths <path>..."),
+        ));
+    }
     if asks_approval && !p.approved() {
         return Some(approval_step(id, p, color, now));
     }
@@ -473,6 +488,18 @@ fn before_the_build(
         return Some(checks_step(id, p, lim));
     }
     None
+}
+
+/// The lines a reading left under `MISSING:`, counted and quoted.
+pub(crate) fn gaps_said(gaps: &[String]) -> String {
+    format!(
+        "{} under MISSING: ({})",
+        match gaps.len() {
+            1 => "a line".to_string(),
+            n => format!("{n} lines"),
+        },
+        gaps.join("; ")
+    )
 }
 
 /// The person approves what has to pass, before anyone builds.

@@ -205,6 +205,14 @@ fn check_kind(l: &Loaded, id: &str, of: &str, kind: LogKind) -> R<()> {
             "read the brief before asking the person to approve it",
             way_on(l, id),
         )),
+        "brief" if p.gaps_open() => Err(Fail::refuse(
+            "gaps-unanswered",
+            format!(
+                "the reading left {}: a new version of the brief comes before this question",
+                crate::next::gaps_said(&p.gaps)
+            ),
+            way_on(l, id),
+        )),
         "brief" if kind == LogKind::Change && p.approved() => Err(Fail::refuse(
             "already-approved",
             "what has to pass still has the person's approval",
@@ -433,6 +441,12 @@ pub fn approve(ctx: &Ctx, id: &str, a: &Approval) -> Out {
                         .join(", ")
                 ));
             }
+        }
+        if a.of == "brief" && l.state.progress.gaps_open() {
+            out.say(format!(
+                "note: the reading left {}: a new version of the brief still comes before its checks",
+                crate::next::gaps_said(&l.state.progress.gaps)
+            ));
         }
         let ev = new_event(
             id,

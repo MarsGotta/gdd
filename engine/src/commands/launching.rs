@@ -104,6 +104,16 @@ pub(super) fn review_sent_back(root: &Path, id: &str) -> Option<(String, Vec<Str
     crate::journal::sent_back(&Project::open(root).journal_path(id))
 }
 
+/// The zone whose own gate a setup item builds: `gates-<zone>`, or `gates-<zone>-<n>` for one
+/// more.
+pub(super) fn gate_zone(id: &str) -> Option<&str> {
+    let zone = id.strip_prefix("gates-")?;
+    Some(match zone.rsplit_once('-') {
+        Some((z, n)) if n.chars().all(|c| c.is_ascii_digit()) => z,
+        _ => zone,
+    })
+}
+
 /// What a setup log sets up, in words for its roles: `standing-checks`, `standing-checks-<check>`
 /// or `gates-<zone>`.
 fn setup_subject(id: &str) -> (String, String) {
@@ -112,11 +122,7 @@ fn setup_subject(id: &str) -> (String, String) {
             format!("the check {check}, which the color of a new zone asks for"),
             format!("the new check {check}"),
         )
-    } else if let Some(zone) = id.strip_prefix("gates-") {
-        let zone = match zone.rsplit_once('-') {
-            Some((z, n)) if n.chars().all(|c| c.is_ascii_digit()) => z,
-            _ => zone,
-        };
+    } else if let Some(zone) = gate_zone(id) {
         (
             format!(
                 "the gate of the zone {zone}: the check of each new `Rule:` in gdd/gates/{zone}.feature, built from its scenarios"

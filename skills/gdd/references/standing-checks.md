@@ -14,7 +14,7 @@ This is yours to start. When the item is still `todo` and someone asks for a cha
 
 ## Later on
 
-These go the same way, each as a backlog item with a log and a seal of its own name:
+These go the same way, each as a backlog item with a log and a seal of its own name. Once the standing checks hold, `gdd color --paths` and the first `gdd brief` of a change name the ones it would go ahead of, under `setup_ahead`. Whether one comes first is yours to judge, by these lines:
 
 - **A check the project hadn't set up,** which the color of a new zone asks for: `standing-checks-<check id>`. No change starts in that zone before it holds.
 - **A check that waited for something to judge,** in a project that had no code: `standing-checks-<check id>`, right after the first item that brings it work. That item's checks role set up what the check needs, sealed with its tests, and its gates ran it; here it is proved and tried on that code, as steps 2 and 3 say.

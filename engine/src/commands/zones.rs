@@ -193,6 +193,9 @@ pub fn color_cmd(ctx: &Ctx, id: Option<&str>, paths: &[String]) -> Out {
             files.sort();
             files.dedup();
             preview(out, &ctx.root, &bp, &c, &files)?;
+            if id.is_none_or(|i| log_kind(i) == LogKind::Change) {
+                super::brief::setup_ahead(ctx, &bp, &c, &files, out);
+            }
         }
         out.fact("on", on);
         out.fact("paths", json!(c.paths));
