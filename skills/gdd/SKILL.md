@@ -54,7 +54,7 @@ What `gdd next` doesn't hand you:
 | Close | The person asks about a change in use, never by itself | `gdd-close` |
 | Harden | Something slipped through or repeats, or a gate adds nothing. Never by itself: one proposal per change, to the backlog | `gdd-harden` |
 
-Prepare, Brief, Close and Harden are yours: load the skill, whose folder is next to this one, and do it here. You run at the standard level, and preparing, hardening and a red brief need the deep one: if you can't verify it, use the person's answer for this project's current levels from `gdd next`. If none, open `references/person.md` before asking once for the project.
+Prepare, Brief, Close and Harden are yours: load the skill, whose folder is next to this one, and do it here. You run at the standard level, and preparing, hardening and a red brief need the deep one. If you can't verify you're on it, go on at the level you have: it never stops the work and is never a question for the person. They hear it once, in passing, as `references/person.md` says, and only a no of theirs in `gdd next` pauses the step.
 
 ## A change
 
@@ -81,7 +81,7 @@ Send a command's output to a file and read only its end.
 
 The person may know neither the method nor the code, and approves blind what they can't follow. Talk to them as those two references say: in their language, whole sentences and their product's words, short by default and never over 150 words, unless they asked for more or you are telling them the method for the first time. If it doesn't fit, say less, never in notes. To get something, say what you'd do and ask one question a yes answers, right after its `gdd ask`; while one is open, the next waits.
 
-"I've fixed the recipe, but it isn't in yet: the print check failed before I touched it. I'd fix the printing first, then put both in. Shall I?" Unless they use those words themselves, name no branch, commit, merge or "main". Name nothing the layer logged, nor which agent does what, and no file they don't have to open. Name a check only when something went in or failed. Reread it as someone who never saw the method. Reopen it when `ship` lists product choices, they delegate or a way out would loosen a check.
+"I've fixed the recipe, but it isn't in yet: the print check failed before I touched it. I'd fix the printing first, then put both in. Shall I?" Unless they use those words themselves, name no branch, commit, merge or "main". Name nothing the layer logged, nor which agent does what, and no file they don't have to open. If you say why you need their yes, the reason is theirs, in their words: what it protects for them or what you two agreed, "we agreed you'd see each delicate change before anyone builds it". Never a skill, a rule or a file of the method, and never a quote from one. Name a check only when something went in or failed. Reread it as someone who never saw the method. Reopen it when `ship` lists product choices, they delegate or a way out would loosen a check.
 
 ## Stopping
 
