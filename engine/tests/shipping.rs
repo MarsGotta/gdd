@@ -405,6 +405,119 @@ fn a_merge_of_main_that_touches_its_files_asks_for_a_review_again() {
     assert_eq!(n.facts["state"]["next"]["step"], "review", "{}", n.out);
 }
 
+/// A green change to one file, built from the main branch as it is and through its gates and its
+/// review.
+fn green_through_review(r: &Repo, id: &str, file: &str, text: &str) -> String {
+    r.gdd(&["brief", id, "--paths", file]);
+    let base = r.git(&["rev-parse", "main"]);
+    let head = r.commit_on(&format!("work/{id}"), Some(&base), &[(file, text)], "Build");
+    r.report(id, "build", &report_block("gdd-build", "done"), &[]);
+    assert_eq!(r.gdd(&["gates", id]).code, 0);
+    r.report(id, "review", &r.review_pass(id, "green", ""), &[]);
+    head
+}
+
+#[test]
+fn a_local_merge_waits_for_what_main_changed_since_the_gates() {
+    let r = Repo::new();
+    r.write("src/ui/label.txt", "Orders\n");
+    r.write("src/ui/width.txt", "16\n");
+    r.write(
+        "tests/run.sh",
+        "label=$(cat src/ui/label.txt)\n[ \"${#label}\" -le \"$(cat src/ui/width.txt)\" ]\n",
+    );
+    r.commit("A label, the width it has to fit, and the test that says so");
+    let head = green_through_review(&r, "w1", "src/ui/width.txt", "10\n");
+    // Main gets a longer label once the gates and the review have passed. It fits the width main
+    // has, and git would merge the two without a conflict, into a tree that fails the test.
+    r.write("src/ui/label.txt", "My orders today\n");
+    let main = r.commit("Another change, another file");
+    let n = r.gdd(&["next", "w1"]);
+    assert_eq!(n.facts["state"]["next"]["step"], "ship", "{}", n.out);
+    assert!(
+        n.has("A local merge waits: main changed src/ui/label.txt since work/w1 last took it in"),
+        "next says it before anyone tries: {}",
+        n.out
+    );
+    assert!(
+        n.has("merge main into work/w1, gdd gates w1, gdd ship w1 --merge"),
+        "{}",
+        n.out
+    );
+    let s = r.gdd(&["ship", "w1", "--merge"]);
+    assert_eq!(s.code, 1, "{}", s.out);
+    assert_eq!(s.facts["refused"], "behind-main", "{}", s.out);
+    assert!(
+        s.has("src/ui/label.txt"),
+        "it names what is missing: {}",
+        s.out
+    );
+    assert!(
+        s.has("merge main into work/w1, gdd gates w1"),
+        "and the way on: {}",
+        s.out
+    );
+    assert_eq!(r.git(&["rev-parse", "main"]), main, "nothing merged");
+    assert_eq!(r.git(&["rev-parse", "work/w1"]), head, "nothing committed");
+    // Up to date, its gates catch what the merge would have put on main.
+    r.merge_into("work/w1", &["main"]);
+    let g = r.gdd(&["gates", "w1"]);
+    assert_eq!(g.code, 1, "{}", g.out);
+    assert_eq!(g.facts["passed"], false, "{}", g.out);
+    assert_eq!(r.git(&["rev-parse", "main"]), main, "and main is as it was");
+}
+
+#[test]
+fn a_conflict_with_main_settled_for_the_change_asks_for_a_review_again() {
+    let r = Repo::new();
+    r.write("src/ui/three.txt", "one\ntwo\nthree\n");
+    r.commit("Three lines");
+    green_through_review(&r, "m3", "src/ui/three.txt", "one\ntwo\nTHREE\n");
+    // Main changes the same line, and whoever merges it into the change keeps the change's line:
+    // the two heads hold the same files, and what main brought is gone.
+    r.write("src/ui/three.txt", "one\ntwo\nthree!\n");
+    r.commit("Another change, same line");
+    r.merge_into("work/m3", &["-X", "ours", "main"]);
+    assert_eq!(
+        r.git(&["show", "work/m3:src/ui/three.txt"]),
+        "one\ntwo\nTHREE"
+    );
+    assert_eq!(r.gdd(&["gates", "m3"]).code, 0);
+    let n = r.gdd(&["next", "m3"]);
+    assert_eq!(
+        n.facts["state"]["next"]["step"], "review",
+        "nobody saw that choice: {}",
+        n.out
+    );
+}
+
+#[test]
+fn a_sealed_change_behind_main_is_sent_through_its_seal() {
+    let r = Repo::new();
+    let id = "w2";
+    yellow_through_gates(&r, id);
+    assert_eq!(
+        r.report(id, "review", &r.review_pass(id, "yellow", ""), &[])
+            .code,
+        0
+    );
+    r.write("src/core/other.txt", "another change shipped\n");
+    r.commit("Another change");
+    let s = r.gdd(&["ship", id, "--merge"]);
+    assert_eq!(s.facts["refused"], "behind-main", "{}", s.out);
+    assert!(
+        s.has("gdd seal w2 --merge-main, merge gdd-seal/w2 into work/w2, gdd gates w2"),
+        "{}",
+        s.out
+    );
+    // That way, followed to the letter, ships it.
+    assert_eq!(r.gdd(&["seal", id, "--merge-main"]).code, 0);
+    r.merge_into("work/w2", &["gdd-seal/w2"]);
+    assert_eq!(r.gdd(&["gates", id]).code, 0);
+    let s = r.gdd(&["ship", id, "--merge"]);
+    assert_eq!(s.code, 0, "{}", s.out);
+}
+
 #[test]
 fn an_uncited_fix_goes_back_to_its_reviewer() {
     let r = Repo::new();
@@ -1671,10 +1784,16 @@ fn a_local_merge_after_a_pull_request_takes_the_copys_bookkeeping() {
         std::fs::copy(e.path(), r.path("gdd/log").join(e.file_name())).unwrap();
     }
     assert_eq!(r.gdd(&["ship", "ga", "--done", "main"]).code, 0);
-    // The second one's bookkeeping holds the first one's log, newer than what the main branch has.
+    // The second one takes in what the first brought, and goes through its gates with it.
+    assert_eq!(
+        r.gdd(&["ship", "gb", "--merge"]).facts["refused"],
+        "behind-main"
+    );
+    r.merge_into("work/gb", &["main"]);
+    assert_eq!(r.gdd(&["gates", "gb"]).code, 0);
+    // Its bookkeeping holds the first one's log, newer than what the main branch has.
     let b = r.gdd(&["ship", "gb", "--merge"]);
     assert_eq!(b.code, 0, "{}", b.out);
-    assert!(b.has("the copy's version went in"), "{}", b.out);
     assert!(git_ok(
         &r.root,
         &["merge-base", "--is-ancestor", "work/ga", "main"]
@@ -1688,6 +1807,25 @@ fn a_local_merge_after_a_pull_request_takes_the_copys_bookkeeping() {
         in_main.contains("\"step\":\"ship\""),
         "the first ship travelled with the second change"
     );
+    assert_eq!(r.git(&["status", "--porcelain"]), "");
+    let v = r.gdd(&["verify", "--all"]);
+    assert_eq!(v.facts["errors"], 0, "{}", v.out);
+}
+
+#[test]
+fn main_ahead_in_bookkeeping_alone_holds_no_change_back() {
+    let r = tracked_logs_repo();
+    green_through_review(&r, "k1", "src/ui/a.txt", "new\n");
+    // Someone commits the copy's logs on main by hand, and the copy goes on writing its journal.
+    r.commit("The logs, by hand");
+    assert_eq!(r.gdd(&["next", "k1"]).code, 0);
+    let s = r.gdd(&["ship", "k1", "--merge"]);
+    assert_eq!(
+        s.code, 0,
+        "bookkeeping is nothing a gate looks at: {}",
+        s.out
+    );
+    assert!(s.has("the copy's version went in"), "{}", s.out);
     assert_eq!(r.git(&["status", "--porcelain"]), "");
     let v = r.gdd(&["verify", "--all"]);
     assert_eq!(v.facts["errors"], 0, "{}", v.out);

@@ -360,6 +360,21 @@ impl Repo {
         head
     }
 
+    /// Merge into a branch through a worktree outside the project, as the orchestrator brings a
+    /// change up to date: `merge` is what `git merge` takes, the branch to bring in last.
+    pub fn merge_into(&self, branch: &str, merge: &[&str]) -> String {
+        let wt = self
+            .dir
+            .path()
+            .join(format!("wt-merge-{}", branch.replace('/', "-")));
+        let w = wt.to_string_lossy().to_string();
+        git(&self.root, &["worktree", "add", "-q", &w, branch]);
+        git(&wt, &[&["merge", "-q", "--no-edit"], merge].concat());
+        let head = git(&wt, &["rev-parse", "HEAD"]);
+        git(&self.root, &["worktree", "remove", "--force", &w]);
+        head
+    }
+
     /// Write a role's last message to a file and report it.
     pub fn report(&self, id: &str, step: &str, text: &str, extra: &[&str]) -> Run {
         let f = self.dir.path().join(format!("report-{id}-{step}.txt"));

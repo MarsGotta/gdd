@@ -228,6 +228,30 @@ pub fn changed_by(root: &Path, commit: &str) -> Result<Vec<String>, String> {
     diff_names(root, &format!("{commit}^1"), commit)
 }
 
+/// The paths changed, each against its parent, by the commits `tip` holds and `base` doesn't,
+/// merges apart.
+pub fn changed_since(root: &Path, base: &str, tip: &str) -> Result<Vec<String>, String> {
+    let not_base = format!("^{base}");
+    let o = run(
+        root,
+        &[
+            "log",
+            "--no-merges",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            "--format=",
+            "--end-of-options",
+            tip,
+            &not_base,
+        ],
+    )?;
+    if !o.status.success() {
+        return Err(String::from_utf8_lossy(&o.stderr).trim().to_string());
+    }
+    Ok(z_list(&o.stdout))
+}
+
 /// The text of a path at a commit, or `None`. The commit can come from a log someone wrote by
 /// hand: it goes after `--end-of-options`, so one that starts with a dash is never an option.
 pub fn show(root: &Path, commit: &str, path: &str) -> Option<String> {

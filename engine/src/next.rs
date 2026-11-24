@@ -269,9 +269,16 @@ pub fn follow_up(id: &str, of: &str, version: i64) -> String {
     }
 }
 
-/// How a change that passed everything ships: by a local merge, or by pull request.
+/// How a change that passed everything ships: by a local merge, or by pull request. A local merge
+/// waits while the main branch holds changes the change lacks.
 fn ship_step(id: &str, git: &GitView) -> Next {
-    let merge = format!("gdd ship {id} --merge");
+    let (behind, merge) = match git.behind(id) {
+        Some((why, way)) => (
+            format!(". A local merge waits: {why}"),
+            format!("{way}, gdd ship {id} --merge"),
+        ),
+        None => (String::new(), format!("gdd ship {id} --merge")),
+    };
     let request = format!(
         "gdd ship {id} --bookkeeping, then once the pull request is merged: gdd ship {id} --done <where>"
     );
@@ -283,7 +290,7 @@ fn ship_step(id: &str, git: &GitView) -> Next {
     n(
         "ship",
         format!(
-            "describe it (gdd ship {id} --describe) and ship it as the constitution says: by a local merge, or by pull request"
+            "describe it (gdd ship {id} --describe) and ship it as the constitution says: by a local merge, or by pull request{behind}"
         ),
         format!("{first}; or {second}"),
     )

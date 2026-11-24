@@ -513,6 +513,10 @@ pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
         let head = ship_head(&l, id)?;
         let judged = judged_for(ctx, &l, id, &head)?;
         let branch = branch_on_main(ctx, &l, id, &main)?;
+        // What merges is what its gates judged: not while the main branch holds changes it lacks.
+        if let Some((why, way)) = l.state.git.behind(id) {
+            return Err(Fail::refuse("behind-main", why, way));
+        }
         let tip = bookkeeping_on_branch(ctx, &l, id, &head, &judged, &branch, out)?;
         let aside = Aside::take(ctx, id, &tip, out)?;
         merge_judged(ctx, id, &branch, &main, &tip, &aside, out)?;

@@ -15,7 +15,12 @@ pub struct GitView {
     pub head: Option<String>,
     pub seal_tip: Option<String>,
     pub merge_changes_product: bool,
+    /// The main branch: its name, its tip, and what it changed since the head last took it in,
+    /// the layer's bookkeeping apart. While there is any, a local merge would make a tree no gate
+    /// ran on. Empty for a setup log, which ships its seal, and once a change shipped.
+    pub main: String,
     pub main_tip: Option<String>,
+    pub behind_main: Vec<String>,
     /// Whether the repository has a remote, which says how it likely ships.
     pub has_remote: bool,
     /// Pairs of a commit that was judged and a commit that stands for it: the second differs from
@@ -129,6 +134,28 @@ fn bookkeeping_holds(
 }
 
 impl GitView {
+    /// Why a local merge of `id` waits, and the way on, while the main branch holds changes its
+    /// head doesn't: through its seal when the change has one.
+    pub fn behind(&self, id: &str) -> Option<(String, String)> {
+        let first = self.behind_main.first()?;
+        let (main, branch) = (&self.main, self.branch.as_deref().unwrap_or("its branch"));
+        let rest = match self.behind_main.len() - 1 {
+            0 => String::new(),
+            n => format!(" and {n} more"),
+        };
+        let how = if self.seal_tip.is_some() {
+            format!("gdd seal {id} --merge-main, merge gdd-seal/{id} into {branch}")
+        } else {
+            format!("merge {main} into {branch}")
+        };
+        Some((
+            format!(
+                "{main} changed {first}{rest} since {branch} last took it in, and the gates of {id} never ran with it"
+            ),
+            format!("bring the change up to date first: {how}, gdd gates {id}"),
+        ))
+    }
+
     /// Whether `now` stands for the commit `judged`: the same commit, or one that changed nothing
     /// a judge looks at since.
     pub fn stands_for(&self, judged: &str, now: &str) -> bool {
@@ -149,6 +176,14 @@ impl GitView {
             return gv;
         }
         let p = Progress::of(id, entries);
+        if log_kind(id) != LogKind::Setup
+            && p.shipped.is_none()
+            && let (Some(main), Some(head)) = (gv.main_tip.as_deref(), gv.head.as_deref())
+            && let Some(base) = crate::git::merge_base(root, main, head)
+        {
+            gv.behind_main = crate::git::diff_names(root, &base, main).unwrap_or_default();
+            gv.behind_main.retain(|p| !is_bookkeeping(p));
+        }
         if p.merging_checks_fix()
             && let Some(before) = p
                 .checks_fix
@@ -194,14 +229,19 @@ impl GitView {
 /// `b`'s history: every path that differs is a bookkeeping file by name ([`is_bookkeeping`]), and
 /// holds at `b` the working copy's content or what the layer's own bookkeeping commit put there.
 /// A file a builder put under `gdd/log/` is neither, and the head that carries it is not judged.
+/// Nor is a merge that brought the main branch in and kept none of it: the files are the same, and
+/// what each commit that came in changed counts too.
 pub fn only_bookkeeping(root: &std::path::Path, id: &str, a: &str, b: &str) -> bool {
     if !crate::git::is_ancestor(root, a, b) {
         return false;
     }
-    let Ok(names) = crate::git::diff_names(root, a, b) else {
+    let (Ok(names), Ok(came_in)) = (
+        crate::git::diff_names(root, a, b),
+        crate::git::changed_since(root, a, b),
+    ) else {
         return false;
     };
-    if !names.iter().all(|p| is_bookkeeping(p)) {
+    if !names.iter().chain(&came_in).all(|p| is_bookkeeping(p)) {
         return false;
     }
     let commits = bookkeeping_commits(root, id);
@@ -267,14 +307,18 @@ pub fn review_carries(
     if !own.trim().is_empty() {
         return false;
     }
-    let (Ok(touched), Ok(brought)) = (
+    // The difference between the two heads misses a conflict settled for the change's side, so
+    // what each commit that came in changed counts too.
+    let (Ok(touched), Ok(brought), Ok(came_in)) = (
         git::diff_names(root, start, reviewed),
         git::diff_names(root, reviewed, judged),
+        git::changed_since(root, reviewed, judged),
     ) else {
         return false;
     };
     brought
         .iter()
+        .chain(&came_in)
         .filter(|p| !is_bookkeeping(p))
         .all(|p| !touched.contains(p))
 }
@@ -309,8 +353,10 @@ impl GitView {
             has_remote: crate::git::out(root, &["remote"]).is_ok_and(|r| !r.trim().is_empty()),
             same: vec![],
             merge_changes_product: false,
+            behind_main: vec![],
             seal_tip: crate::git::commit_of(root, &format!("refs/heads/gdd-seal/{id}")),
             main_tip: crate::git::commit_of(root, &crate::git::branch_ref(&main)),
+            main,
             branch,
             head,
         }

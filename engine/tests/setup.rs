@@ -159,6 +159,11 @@ fn the_standing_checks_of_the_prepared_shop_from_start_to_ship() {
     // It ships the way the shop's constitution says: a local merge.
     let d = gdd(&["ship", id, "--describe"]);
     assert!(d.has("It sets up checks of the project"), "{}", d.out);
+    // The main branch moved since its trial. A change would wait for it (`behind-main`); a setup
+    // log still ships, because a trial doesn't carry over a merge of the main branch yet.
+    std::fs::write(dir.join("src/texts/footer.txt"), "moved\n").unwrap();
+    git(&dir, &["add", "src/texts/footer.txt"]);
+    git(&dir, &["commit", "-q", "-m", "Main moves"]);
     let s = gdd(&["ship", id, "--merge"]);
     assert_eq!(s.code, 0, "{}", s.out);
     assert_eq!(
