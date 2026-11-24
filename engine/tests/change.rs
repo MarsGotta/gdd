@@ -115,7 +115,7 @@ fn a_green_change_from_brief_to_ship() {
 }
 
 fn build_report(field: &str) -> String {
-    format!("```gdd-report\nskill: gdd-build 0.21.0\nresult: done\ncaught: none\n{field}```")
+    format!("```gdd-report\nskill: gdd-build 0.21.1\nresult: done\ncaught: none\n{field}```")
 }
 
 fn check_build_decisions(field: &str, expected: Option<&[&str]>) {
