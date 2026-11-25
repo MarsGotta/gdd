@@ -88,6 +88,7 @@ NO_SKILL = {"gdd-scout"}  # the orchestrator's search is no role: its file says 
 SHARED = [
     ("gdd-checks/references/scripts.md", "gdd-review/references/scripts.md"),
     ("gdd-prepare/references/web.md", "gdd-checks/references/web.md"),
+    ("gdd-prepare/references/software.md", "gdd-checks/references/software.md"),
 ]
 PROJECT_SCRIPTS = {"gdd-prepare/assets/check.sh", "gdd-prepare/assets/limits.sh"}  # templates the project copies and owns: the skills never run them
 SCRIPTS = {".sh", ".bash", ".zsh", ".py", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl", ".ps1"}

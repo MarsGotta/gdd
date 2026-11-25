@@ -31,7 +31,7 @@ Every project starts with these, each round and on every color, all of them toge
 - what the stack has to catch a mistake before anything runs: a linter, and its types where it has them;
 - a scan that keeps secrets out of the repository, with a mature scanner taken as it is.
 
-Then once, before the reviewer, what takes longer, under ten minutes in all: when the project has a screen, one test that drives it through what the change touches, and only when the change touches what a person sees.
+Then once, before the reviewer, what takes longer, under ten minutes in all: when the project has a screen, one test that drives it through what the change touches, and only when the change touches what a person sees. At which level each test of a scenario goes, unit or integration, is in `software.md`.
 
 And the rules of the product in the constitution, three to seven, which every brief goes through.
 

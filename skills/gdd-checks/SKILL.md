@@ -14,7 +14,7 @@ A gate that never closes is not a gate: it's a drawing on the wall. Your checks 
 
 Save command output to a file and read only its end. Don't print unchanged files again. Each repeat fills the next round's context.
 
-Use your own worktree inside the project. If git cannot add it, clone the project in your temporary folder. Copy its `user.name` and `user.email` to the clone. Start at the project's `gdd-seal/<id>` tip (main for a new setup seal). In the project, run `git fetch <clone> gdd-seal/<id>:gdd-seal/<id>` before reporting. If git refuses, stop with `CANNOT:` and name the branch and file. Never force it. See `../gdd/references/role-clone.md`.
+Use your own worktree inside the project. If git cannot add it, clone the project in your temporary folder with its git name and email. Start at the project's `gdd-seal/<id>` tip (main for a new setup seal). In the project, run `git fetch <clone> gdd-seal/<id>:gdd-seal/<id>` before reporting. If git refuses, stop with `CANNOT:` and name the branch and file. Never force it. See `../gdd/references/role-clone.md`.
 
 ## What you get
 
@@ -48,7 +48,7 @@ The blueprint's `colors` say what each color asks for, and the blueprint wins. W
 
 On every color with cases, read each test against its scenario before sealing. Name a plausible wrong solution and point to the inputs and assertion that would reject it. Try a constant, the same branch every time, two swapped fields, the example numbers alone or a mouse-only button. If you can't name one, or that solution would still pass, strengthen the test and read it again. Check both sides of a boundary when accepting or rejecting every input would otherwise pass.
 
-1. **Write it from its scenario.** A test cites its scenario's id exactly as `gdd:<id>`, in a comment where its name can't hold it, and goes through the real entry point (the command, the endpoint, the public function), not a helper behind it. For each thing created, used up or ended, and each value changed in another zone, read the result through the other part of the product named in the scenario. If the scenario leaves the outcome, timing or viewpoint open, report it under `MISSING:`.
+1. **Write it from its scenario.** A test cites its scenario's id exactly as `gdd:<id>`, in a comment where its name can't hold it, and goes in at the lowest level that can observe its outcome, through that level's real entry point (the public function, the endpoint, the command), not a helper behind it. In software, `references/software.md` says which level. For each thing created, used up or ended, and each value changed in another zone, read the result through the other part of the product named in the scenario. If the scenario leaves the outcome, timing or viewpoint open, report it under `MISSING:`.
 2. **Watch it reject.** Run it on the bad case: for a new behavior, the code as it is, still without it; for a standing check, a bad case planted for it. It must fail on the assertion about the behavior, with a message that names what's wrong. A compile error, a missing import, a timeout or a skipped test is the wrong reason. When the change creates its entry point, the error that says it doesn't exist yet is the right one: write no stub to turn it into an assertion.
 3. **Prove it can pass, on red.** On yellow, write no version of the behavior the scenario asks for, not even one line in a scratch copy: run the test only on a correct version that already exists, or one that costs a single line and isn't that behavior. Otherwise your report says "seen rejecting, not seen passing". On red, run it on a correct version. If that takes a throwaway, write it in your own copy, out of the builder's reach, and delete it after: seeing it would give the solution away.
 4. **Break it on purpose, on red, and never on yellow.** Make that correct version wrong once for each check, with the break that removes the work (remove the line that does it, return a constant, flip a comparison), and watch the check go red. If it stays green, it's hollow: strengthen it and break it again, the only time a second break is worth it.
@@ -103,7 +103,6 @@ Look for checks that can pass for the wrong reason.
 - Avoid byte-for-byte comparisons with a fixed revision when later changes may legitimately edit those files.
 - Pair a check of what must not happen with one that shows the feature exists and does its job.
 - **Unstable checks** don't get fixed by raising timeouts, running serially or retrying until green. Find the cause.
-- Try a check on code it can judge. An empty project can pass even an unreachable threshold.
 
 ## Report
 
