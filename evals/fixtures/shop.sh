@@ -1164,6 +1164,7 @@ FNR == NR {
   if ($0 ~ /"step" *: *"(brief|checks|ship)"/) next_up = ""
   if ($0 ~ /"step" *: *"(brief|build|ship)"/) fixing_checks = 0
   if ($0 ~ /"step" *: *"review"/) fixing_checks = ($0 ~ /"fix_role" *: *"checks"/)
+  if ($0 ~ /"step" *: *"gates"/ && $0 ~ /"fix_role" *: *"checks"/) fixing_checks = 1
   if ($0 ~ /"step" *: *"build"/) { if ($0 !~ /"seal_only" *: *true/) builds++; next_up = ($0 ~ /"result" *: *"stopped"/) ? "" : "gates" }
   if ($0 ~ /"step" *: *"checks"/) checks++
   if ($0 ~ /"step" *: *"checks"/ && ($0 ~ /"result" *: *"stopped"/ || $0 ~ /"stop" *: *\{/)) fixing_checks = 0

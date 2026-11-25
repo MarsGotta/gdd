@@ -4,7 +4,7 @@ You were given a draft brief with its rules and scenarios, and the base, and no 
 
 Read from the base: the constitution, the blueprint, with what it says can go wrong in each zone, the backlog, the briefs of the features this one reads or changes and what they left for later, and the code its paths name. Then ask the brief these seven questions, the ones its author answered, and see whether the answers hold:
 
-1. **The product's rules.** Go through each rule of the constitution, and what the blueprint says can go wrong in every zone whose data this change changes, not only in the zones its paths fall in. Say whether this change can break each one. Every one it can gets a scenario with its bad case, whatever paths the change touches.
+1. **The product's rules.** Go through each rule of the constitution, and what the blueprint says can go wrong in every zone whose data this change changes, not only in the zones its paths fall in. Say whether this change can break each one. Every one it can gets a scenario with its bad case.
 2. **What it leaves behind.** For each thing it creates, uses up or ends, and each value it changes that another zone owns, name in the scenario what someone sees afterwards and from where else in the product. "After a car leaves, the sign at the gate shows 12 free spaces." Propose the timing under question 5.
 3. **What came before.** Which features already built it reads or changes. Open their briefs and what they left for later, and say which of that this change is: a brief that said another item would complete it may mean this one.
 4. **Twice, or from two places.** What happens if it happens twice in a row, or from two places at once: two tabs, two people, a retry after a timeout.

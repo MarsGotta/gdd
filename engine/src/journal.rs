@@ -158,6 +158,8 @@ fn attempts(journal: &str) -> impl Iterator<Item = Value> + '_ {
                                 | "one-question"
                                 | "parallel-full"
                                 | "paths-shared"
+                                | "provisional"
+                                | "waits-for"
                         )
                     )
                     && !matches!(

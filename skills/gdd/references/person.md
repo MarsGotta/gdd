@@ -44,7 +44,7 @@ Your environment may ask you now and then to say what you're doing. Answer in on
 
 ## The first days
 
-Before the first piece of their product, a new project sets up what will watch every change, and for a while there is nothing of their product to talk about. If the first conversation gave them the road, say it again once with the detail when they approve the blueprint, and if not, say it then: what comes first, roughly how long it takes, said as a guess, how many times you'll ask them for a yes on the way, and when they'll first see something they can use. Then later messages don't have to justify each step.
+A new project sets up what will watch every change while the first piece of their product is briefed and built alongside, and that piece gets in only once those checks hold. If the first conversation gave them the road, say it again once with the detail when they approve the blueprint, and if not, say it then: what comes first, roughly how long it takes, said as a guess, how many times you'll ask them for a yes on the way, and when they'll first see something they can use. Then later messages don't have to justify each step.
 
 ## Examples
 

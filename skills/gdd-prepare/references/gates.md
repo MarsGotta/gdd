@@ -55,11 +55,11 @@ Check every flag in the scanner's own help before you write it. Then try the com
 
 ## What isn't in the minimum, and why
 
-- **Mutation testing,** the software form of a check of planted faults. It shows whether the tests catch planted bugs, and it costs minutes on every run. It comes when the tests proved weak: a reviewer found one that passed without its behavior, which `gdd metrics` counts by color as changes sent back to whoever wrote their checks, or a failure got past tests that ran its lines.
+- **A check of planted faults,** mutation testing in software. It shows whether the tests catch planted bugs, and it costs minutes on every run. In software it comes with the first yellow change that has cases, as `../gdd-recipes/software.md` says, because tests written by agents prove weak too often to wait for one to slip through. In other areas it comes when the tests proved weak: a reviewer found one that passed without its behavior, which `gdd metrics` counts by color as changes sent back to whoever wrote their checks, or a failure got past tests that ran its lines.
 - **A threshold of coverage.** How many lines ran says nothing about what was checked, and a change pays to reach the number. The tests of each change already follow its scenarios.
 - **Tests that drive a browser on every round.** They earn their place once the rest pass, before the review.
 
-When hardening brings mutation testing or a threshold of coverage in, it starts at the tool's own default, looked up on the tool's own page: never a number from memory. Anything stricter comes in when hardening, with what slipped through as its evidence, and the person approves it.
+When a check of planted faults or a threshold of coverage comes in, it starts at the tool's own default, looked up on the tool's own page: never a number from memory. Anything stricter comes in when hardening, with what slipped through as its evidence, and the person approves it.
 
 ## Two tiers, and what each may take
 

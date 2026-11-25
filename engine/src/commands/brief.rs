@@ -16,6 +16,11 @@ pub struct BriefArgs<'a> {
     pub request_file: Option<&'a str>,
     /// Why the change is dropped: the brief step then ends it, with its `result` `stopped`.
     pub stop: Option<&'a str>,
+    /// The shipped change it fixes (decision 143).
+    pub fixes: Option<&'a str>,
+    /// The setup item of the backlog its gates wait for: the gate a risk it brings needs
+    /// (decision 146).
+    pub waits_for: Option<&'a str>,
 }
 
 /// A dropped change: a `brief` step whose `result` is `stopped`, with why. It moves nothing: no
@@ -69,17 +74,104 @@ fn brief_stopped(l: &Loaded, id: &str, why: &str, a: &BriefArgs, out: &mut Out) 
     Ok(())
 }
 
-/// Every product brief waits for the project-wide setup.
-pub(super) fn pending_standing_checks(ctx: &Ctx) -> R<Option<state::Next>> {
-    let (_, text) = read_backlog(ctx)?;
-    Ok(
-        (backlog::standing_checks(&backlog::items(&text)) != Some("done")).then(|| state::Next {
-            step: "stopped".into(),
-            blocked: Some("standing-checks".into()),
-            say: "The standing checks come before any change.".into(),
-            command: "gdd next standing-checks".into(),
-        }),
+/// Why a change of a color the blueprint still has as `provisional` waits (decision 141).
+pub(super) fn provisional_said(color: &str) -> String {
+    format!(
+        "what a {color} change goes through is still the template's proposal: the blueprint's provisional names {color}, and the person decides it when the first one comes"
     )
+}
+
+/// What the orchestrator does about it: one question to the person, with its proposal.
+pub(super) fn provisional_way(color: &str) -> String {
+    format!(
+        "ask them once, with what you propose, as gdd-prepare's references/provisional.md says: gdd ask blueprint --of blueprint \"<what a {color} change would go through, and what you propose>\". Their answer goes into the blueprint, with {color} out of provisional"
+    )
+}
+
+/// Whether the project-wide setup isn't done, so that one change of the product goes alongside it.
+/// A backlog with no `standing-checks` row counts as not done, as it always did for a new brief.
+pub(super) fn standing_pending(ctx: &Ctx) -> R<bool> {
+    let (_, text) = read_backlog(ctx)?;
+    Ok(backlog::standing_checks(&backlog::items(&text)) != Some("done"))
+}
+
+/// The colors still provisional, in the copy's blueprint or in the main branch's: a color leaves
+/// the list once the person's decision is on the main branch, not with an edit of the copy.
+pub(super) fn provisional_colors(ctx: &Ctx, bp: &Blueprint) -> Vec<String> {
+    let mut colors = bp.provisional();
+    let main = git::branch_ref(&git::main_branch(&ctx.root));
+    let on_main = git::show(&ctx.root, &main, "gdd/blueprint.md")
+        .and_then(|text| Blueprint::parse(&text).ok())
+        .map(|b| b.provisional())
+        .unwrap_or_default();
+    for c in on_main {
+        if !colors.contains(&c) {
+            colors.push(c);
+        }
+    }
+    colors
+}
+
+/// What a change briefed alongside the standing checks waits for before its gates: the checks, and
+/// once they hold, taking them in before its first gates run, so that nothing gets through without
+/// them (decision 140). A change briefed once they held waits for nothing here.
+pub(super) fn standing_hold(ctx: &Ctx, l: &Loaded, id: &str) -> R<Option<state::Next>> {
+    let p = &l.state.progress;
+    if log_kind(id) != LogKind::Change {
+        return Ok(None);
+    }
+    // The gate a risk it brings needs, which its brief said it waits for (decision 146).
+    if let Some(item) = &p.waits_for {
+        let (_, text) = read_backlog(ctx)?;
+        let state = backlog::items(&text)
+            .into_iter()
+            .find(|i| &i.id == item)
+            .map(|i| i.state);
+        if state.as_deref() != Some("done") {
+            return Ok(Some(state::Next {
+                step: "wait".into(),
+                blocked: Some("waits-for".into()),
+                say: format!(
+                    "{id} waits for {item} before its gates: the gate the risk it brings needs holds first, and then its gates judge it with that gate"
+                ),
+                command: format!("gdd next {item}"),
+            }));
+        }
+        if p.gates_since_wait == 0
+            && let Some((why, way)) = l.state.git.behind(id)
+        {
+            return Ok(Some(state::Next {
+                step: "gates".into(),
+                blocked: Some("waits-for".into()),
+                say: format!("{item} holds: {id} takes it in before its first gates, since {why}"),
+                command: way,
+            }));
+        }
+    }
+    if !p.alongside_standing {
+        return Ok(None);
+    }
+    if standing_pending(ctx)? {
+        return Ok(Some(state::Next {
+            step: "wait".into(),
+            blocked: Some("standing-checks".into()),
+            say: format!(
+                "{id} waits for the standing checks before its gates: once they hold, it takes them in and its gates judge it with them"
+            ),
+            command: "gdd next standing-checks".into(),
+        }));
+    }
+    if p.gates_ever == 0
+        && let Some((why, way)) = l.state.git.behind(id)
+    {
+        return Ok(Some(state::Next {
+            step: "gates".into(),
+            blocked: Some("standing-checks".into()),
+            say: format!("the standing checks hold: {id} takes them in before its first gates, since {why}"),
+            command: way,
+        }));
+    }
+    Ok(None)
 }
 
 /// The setup items of the backlog a change would go ahead of, once changes can start: the own
@@ -96,10 +188,8 @@ pub(super) fn setup_ahead(
     let text = read_backlog(ctx).map(|(_, text)| text).unwrap_or_default();
     let items = backlog::items(&text);
     let mut ahead = vec![];
-    // Before the standing checks hold no change starts, so there is nothing to go ahead of.
-    let waiting = items
-        .iter()
-        .filter(|i| i.state != "done" && backlog::standing_checks(&items) == Some("done"));
+    // Also while the standing checks are set up: a change goes alongside them (decision 140).
+    let waiting = items.iter().filter(|i| i.state != "done");
     for item in waiting {
         let (id, state) = (&item.id, &item.state);
         let what = if let Some(check) = id.strip_prefix("standing-checks-") {
@@ -140,9 +230,17 @@ struct Scenario<'a> {
     whens: usize,
 }
 
+/// A rule of a feature: whose it is, its heading, and the criterion of a ticket it came from, when
+/// a `@from:<ticket>#<criterion>` tag says so.
+struct Rule<'a> {
+    label: &'static str,
+    heading: &'a str,
+    from: Option<&'a str>,
+}
+
 #[derive(Default)]
 struct Feature<'a> {
-    rules: BTreeMap<usize, (&'static str, &'a str)>,
+    rules: BTreeMap<usize, Rule<'a>>,
     scenarios: Vec<Scenario<'a>>,
 }
 
@@ -196,9 +294,11 @@ fn feature(text: &str) -> Feature<'_> {
             rule = None;
             // A rule with no text is no rule: there is nothing in it to approve.
             if heading == Some("Rule") && line != "Rule:" {
-                let label = tags
-                    .iter()
-                    .flat_map(|t| t.split_whitespace())
+                let words = || tags.iter().flat_map(|t| t.split_whitespace());
+                let from = words()
+                    .filter_map(|t| t.strip_prefix("@from:"))
+                    .find(|t| !t.is_empty());
+                let label = words()
                     .find_map(|t| match t {
                         "@assumed" => Some("yours"),
                         "@question" => Some("later"),
@@ -207,7 +307,14 @@ fn feature(text: &str) -> Feature<'_> {
                         _ => None,
                     })
                     .unwrap_or("rule");
-                result.rules.insert(i + 1, (label, line));
+                result.rules.insert(
+                    i + 1,
+                    Rule {
+                        label,
+                        heading: line,
+                        from,
+                    },
+                );
                 rule = Some(i + 1);
             }
             current = None;
@@ -237,10 +344,10 @@ fn changed_feature<'a>(text: &'a str, original: &str) -> Feature<'a> {
         true
     });
     let touched: HashSet<_> = changed.scenarios.iter().filter_map(|s| s.rule).collect();
-    let old_rules: HashSet<_> = old.rules.values().map(|(_, heading)| *heading).collect();
+    let old_rules: HashSet<_> = old.rules.values().map(|r| r.heading).collect();
     changed
         .rules
-        .retain(|line, (_, heading)| touched.contains(line) || !old_rules.contains(heading));
+        .retain(|line, r| touched.contains(line) || !old_rules.contains(r.heading));
     changed
 }
 
@@ -312,6 +419,7 @@ pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
     let base = p.base.as_deref();
     let mut lines = Vec::new();
     let mut found = false;
+    let mut from_ticket = false;
     for file in files.keys().filter(|f| f.ends_with(".feature")) {
         let Some(text) = git::show(root, seal, file) else {
             continue;
@@ -322,12 +430,21 @@ pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
         let changed = changed_feature(&text, &original);
         let mut headings = changed.rules;
         for s in changed.scenarios.into_iter().filter(|s| s.rule.is_none()) {
-            headings.insert(s.line, ("no rule", s.title));
+            let no_rule = Rule {
+                label: "no rule",
+                heading: s.title,
+                from: None,
+            };
+            headings.insert(s.line, no_rule);
         }
-        for (label, heading) in headings.into_values() {
-            let title = heading.split_once(':').unwrap().1.trim();
+        for r in headings.into_values() {
+            let title = r.heading.split_once(':').unwrap().1.trim();
             found = true;
-            lines.push(format!("{label}: {title}"));
+            lines.push(match r.from {
+                Some(from) => format!("{}: {title} (from {from})", r.label),
+                None => format!("{}: {title}", r.label),
+            });
+            from_ticket |= r.from.is_some();
         }
         lines.push(format!("read: {file}"));
     }
@@ -341,6 +458,9 @@ pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
     out.say("Their yes covers these lines. Tell them all in their words and language, in whole sentences: what they will notice, then what you chose, marking each 'yours' as yours and grouping the technical ones by what they protect while naming each, and what closes it. Name each file, and end with one question they can answer with a yes.");
     if lines.iter().any(|line| line.starts_with("unchecked: ")) {
         out.say("Mark each 'unchecked' as something you took as true of the outside without seeing it.");
+    }
+    if from_ticket {
+        out.say("Name the ticket and criterion each 'from' came from, and whose words they were.");
     }
     // What a reader who saw only the brief took the change to do goes first, and only of the
     // version they are asked to approve: an earlier reading says nothing of what came after it.
@@ -378,13 +498,43 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
                 "--paths lists every path the change will touch",
             ));
         }
-        if l.state.progress.briefs == 0 || l.state.progress.brief_stopped.is_some() {
-            super::alongside::room_for(ctx, &l.bp, id, a.paths)?;
+        if let Some(item) = a.waits_for.filter(|w| *w != "none") {
+            let (_, text) = read_backlog(ctx)?;
+            let found = backlog::items(&text).into_iter().find(|i| i.id == item);
+            if log_kind(item) != LogKind::Setup || found.as_ref().is_none_or(|i| i.state == "done") {
+                return Err(Fail::usage(format!(
+                    "--waits-for names a setup item of the backlog not done yet, a gates-<zone> or a standing-checks-<check>, and {item} is none: add it first with gdd backlog add"
+                )));
+            }
         }
-        if log_kind(id) == LogKind::Change
-            && let Some(wait) = pending_standing_checks(ctx)?
+        if let Some(f) = a.fixes.filter(|f| *f != "none") {
+            let fixed = state::Progress::of(f, &Project::open(&ctx.root).read_log(f));
+            if log_kind(f) != LogKind::Change || f == id || fixed.shipped.is_none() {
+                return Err(Fail::usage(format!(
+                    "--fixes names a change that shipped, and {f} is none: gdd next {f}"
+                )));
+            }
+        }
+        let starts = l.state.progress.briefs == 0 || l.state.progress.brief_stopped.is_some();
+        // While the standing checks are set up, one change of the product goes alongside them, and
+        // its first gates wait for them (decision 140). That comes before `parallel`, whose room
+        // a person would raise for nothing.
+        let alongside = log_kind(id) == LogKind::Change && standing_pending(ctx)?;
+        if alongside
+            && starts
+            && let Some(other) = super::alongside::open_changes(ctx, Some(id)).first()
         {
-            return Err(Fail::refuse("standing-checks", wait.say, wait.command));
+            return Err(Fail::refuse(
+                "standing-checks",
+                format!(
+                    "while the standing checks are set up, one change of the product goes alongside them, and {} is that one",
+                    other.id
+                ),
+                "gdd next standing-checks".to_string(),
+            ));
+        }
+        if starts {
+            super::alongside::room_for(ctx, &l.bp, id, a.paths)?;
         }
         git_writes(ctx)?;
         let main = git::main_branch(&ctx.root);
@@ -435,6 +585,8 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
                 ("--skill-version", a.skill_version),
                 ("--request", a.request),
                 ("--request-file", a.request_file),
+                ("--fixes", a.fixes),
+                ("--waits-for", a.waits_for),
             ] {
                 if let Some(value) = value.filter(|v| !v.is_empty()) {
                     command.push_str(&format!(" {flag} {}", gates::quote(value)));
@@ -460,6 +612,19 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
             out.say(format!(
                 "the color is {}, not {asked}: judgment can raise the floor, never lower it",
                 c.color
+            ));
+        }
+        // What a color asks is the person's, and the first yes left it for the first change of
+        // that color (decision 141).
+        if provisional_colors(ctx, &l.bp).contains(&c.color) {
+            return Err(Fail::refuse(
+                "provisional",
+                provisional_said(&c.color),
+                format!(
+                    "{}; once they approve it and it is on the main branch: {}",
+                    provisional_way(&c.color),
+                    retry_commands().1
+                ),
             ));
         }
         // A file the log already holds with this content stays valid: only what is new is checked.
@@ -647,6 +812,23 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
             ),
             None => None,
         };
+        if alongside {
+            ev["alongside"] = json!("standing-checks");
+        }
+        // `none` takes back what an earlier version said (decision 146).
+        match a.fixes {
+            Some("none") => ev["fixes"] = Value::Null,
+            Some(f) => ev["fixes"] = json!(f),
+            None => {}
+        }
+        match a.waits_for.or(l.state.progress.waits_for.as_deref()) {
+            Some("none") => ev["waits_for"] = Value::Null,
+            Some(item) => {
+                ev["waits_for"] = json!(item);
+                out.say(format!("{id} waits for {item} before its gates: it can be built meanwhile"));
+            }
+            None => {}
+        }
         if let Some(r) = a
             .request
             .or(from_file.as_deref())
@@ -672,8 +854,8 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
                     changed_feature(&text, &original)
                         .rules
                         .into_values()
-                        .filter(|(label, _)| *label == "unchecked")
-                        .filter_map(|(_, heading)| heading.split_once(':'))
+                        .filter(|r| r.label == "unchecked")
+                        .filter_map(|r| r.heading.split_once(':'))
                         .map(|(_, title)| title.trim().to_string())
                         .collect::<Vec<_>>()
                 })
@@ -689,6 +871,9 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
             c.floor,
             git::short(&base)
         ));
+        if alongside {
+            out.say(format!("the standing checks aren't set up yet: {id} goes alongside them, and its first gates wait for them"));
+        }
         for (z, ps) in &c.zones {
             out.say(format!("  zone {z}: {}", ps.join(", ")));
         }

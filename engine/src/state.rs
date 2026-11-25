@@ -82,6 +82,8 @@ pub struct Review {
 #[derive(Debug, Clone)]
 pub struct ChecksFix {
     pub tests_only: bool,
+    /// It came from a check of the gates, such as one of planted faults, and not from a review.
+    pub from_gates: bool,
     pub line: usize,
     pub head: Option<String>,
     pub paths: BTreeSet<String>,
@@ -165,6 +167,19 @@ pub struct Progress {
     pub checks_runs: i64,
     pub readings_n: i64,
     pub briefs: i64,
+    /// Briefed while the standing checks were still being set up: its first gates wait for them
+    /// and take them in (decision 140).
+    pub alongside_standing: bool,
+    /// The shipped change it fixes, when its brief says so (decision 143).
+    pub fixes: Option<String>,
+    /// The setup item of the backlog its gates wait for (decision 146).
+    pub waits_for: Option<String>,
+    /// When its first brief was written.
+    pub briefed_at: Option<i64>,
+    /// Gates runs since a brief said what it waits for: its first one takes in the main branch.
+    pub gates_since_wait: usize,
+    /// How many times its gates ran, whatever came after.
+    pub gates_ever: usize,
     /// Whether a build came after the last brief or checks step, which start the judging over.
     pub built_since_seal: bool,
     /// The person's request, word for word, when a brief step kept it.
@@ -254,8 +269,25 @@ impl Progress {
         }
     }
 
+    /// The shipped change it fixes, and whether a hardening record named that one since this change
+    /// was briefed: an older record looked at something else (decision 143).
+    pub fn fix_hardened(&self, named: &BTreeMap<String, Vec<i64>>) -> Option<(String, bool)> {
+        let f = self.fixes.clone()?;
+        let since = self.briefed_at.unwrap_or(i64::MIN);
+        let hardened = named.get(&f).is_some_and(|ts| ts.iter().any(|t| *t >= since));
+        Some((f, hardened))
+    }
+
+    /// Whether whoever wrote the change's checks has to correct them now: a review or a check of
+    /// the gates sent them back, and no seal answered it yet.
     pub fn needs_checks_fix(&self) -> bool {
-        self.checks_fix.is_some() && self.last_review.is_some()
+        self.checks_fix.as_ref().is_some_and(|f| {
+            if f.from_gates {
+                self.last_gates.as_ref().is_some_and(|g| g.line == f.line)
+            } else {
+                self.last_review.is_some()
+            }
+        })
     }
 
     pub fn merging_checks_fix(&self) -> bool {
@@ -471,6 +503,24 @@ impl Progress {
             "brief" => {
                 self.limit_deferred = false;
                 self.briefs += 1;
+                self.alongside_standing |= str_of(v, "alongside") == "standing-checks";
+                if self.briefed_at.is_none() {
+                    self.briefed_at = ts(v);
+                }
+                // A brief says it again each version, and `null` takes it back (decision 146).
+                match v.get("fixes") {
+                    Some(Value::String(f)) => self.fixes = Some(f.to_string()),
+                    Some(Value::Null) => self.fixes = None,
+                    _ => {}
+                }
+                match v.get("waits_for") {
+                    Some(Value::String(w)) => {
+                        self.waits_for = Some(w.to_string());
+                        self.gates_since_wait = 0;
+                    }
+                    Some(Value::Null) => self.waits_for = None,
+                    _ => {}
+                }
                 self.checks_fix = None;
                 let color = v["color"]["color"]
                     .as_str()
@@ -606,6 +656,8 @@ impl Progress {
                 self.seal_told = false;
             }
             "gates" => {
+                self.gates_ever += 1;
+                self.gates_since_wait += 1;
                 self.seal_told = false;
                 self.seal_since_gates = false;
                 let mut failed = vec![];
@@ -613,7 +665,8 @@ impl Progress {
                 if let Some(Value::Array(items)) = v.get("gates") {
                     for g in items {
                         let c = str_of(g, "check").to_string();
-                        if str_of(g, "result") == "fail" {
+                        // A check that only reports stops nothing (decision 145).
+                        if str_of(g, "result") == "fail" && g["reports"] != true {
                             failed.push(c.clone());
                         }
                         ran.push(c);
@@ -624,6 +677,16 @@ impl Progress {
                     self.start = Some(start.clone());
                 }
                 let head = v["head"].as_str().map(str::to_string);
+                // A check that judges the change's own tests sends them back (decision 142).
+                if matches!(v["fix_role"].as_str(), Some("checks" | "checks-then-build")) {
+                    self.checks_fix = Some(ChecksFix {
+                        line,
+                        tests_only: v["fix_role"] == "checks",
+                        from_gates: true,
+                        head: head.clone(),
+                        paths: self.checks_sealed.keys().cloned().collect(),
+                    });
+                }
                 self.last_gates = Some(GatesRun {
                     line,
                     passed: failed.is_empty(),
@@ -640,6 +703,7 @@ impl Progress {
                         || ChecksFix {
                             line,
                             tests_only: v["fix_role"] == "checks",
+                            from_gates: false,
                             head: self.last_gates.as_ref().and_then(|g| g.head.clone()),
                             paths: self.checks_sealed.keys().cloned().collect(),
                         },
@@ -988,18 +1052,21 @@ impl State {
     }
 }
 
-/// Derive a change's state from its log and from git, as of `now`. `named` is when a hardening
-/// record first named it as the change that let something through, from the blueprint's log.
+/// Derive a change's state from its log and from git, as of `now`. `named` holds when a hardening
+/// record first named each change as the one that let something through, from the blueprint's
+/// log: this change, and the one it fixes.
 pub fn derive(
     id: &str,
     bp: &Blueprint,
     entries: &[Entry],
     git: GitView,
-    named: Option<i64>,
+    named: &BTreeMap<String, Vec<i64>>,
     undone: Option<Undone>,
     now: i64,
 ) -> State {
     let p = Progress::of(id, entries);
+    let fix = p.fix_hardened(named);
+    let named = named.get(id).map(Vec::as_slice).unwrap_or(&[]);
     // A closed log counts to its last event; an open one to now.
     let until = if p.shipped.is_some() {
         p.last_ts.unwrap_or(now)
@@ -1021,7 +1088,7 @@ pub fn derive(
         (Some(g), None) if g.passed => g.ran.clone(),
         _ => vec![],
     };
-    let standing = crate::closing::standing(&p, bp, named, undone.as_ref(), now);
+    let standing = crate::closing::standing(&p, bp, named, fix, undone.as_ref(), now);
     let next = crate::next::next_step(id, bp, &p, &lim, &git, standing.as_ref(), now);
     State {
         id: id.into(),

@@ -16,6 +16,16 @@ pub fn seal_cmd(ctx: &Ctx, id: &str, files: &[String], merge_main: bool) -> Out 
                 ),
             ));
         }
+        // What the project keeps in .gdd/, a throwaway draft among it, is never part of a change:
+        // git leaves the folder out, and the seal, which writes its own index, would not.
+        let kept = |f: &&String| color::clean_path(f).is_ok_and(|p| p == ".gdd" || p.starts_with(".gdd/"));
+        if let Some(f) = files.iter().find(kept) {
+            return Err(Fail::refuse(
+                "seal",
+                format!("{f} is in .gdd/, which git leaves out: the layer, the drafts and the evidence kept there are never part of a change"),
+                format!("seal the brief and its scenarios: gdd seal {id} <files>"),
+            ));
+        }
         need_repo(ctx, "sealing needs git")?;
         git_writes(ctx)?;
         git_commits(ctx)?;

@@ -41,7 +41,7 @@ The blueprint's `colors` say what each color asks for, and the blueprint wins. W
 - **Red** takes all five steps.
 - **The standing checks** you set up after preparing keep every step of their own section below, whatever color they serve: they judge every change.
 - **A check that waits,** one whose `standing-checks-<check id>` is still `todo` in the backlog: when this change is the first to bring what its `when` names, set up with your tests the runner or the configuration it needs, sealed with them, so that the change's gates run it for real.
-- **Mutation testing,** once hardening added it to a color (the `mutation` check of the blueprint), judges only what the change adds or changes between `<start>` and its head. It runs at the gates, before the review, on what the builder wrote. A mutant that survives there is a hollow check, which comes back to you, or code no scenario asks for, which the builder takes out.
+- **Mutation testing,** where the blueprint has it (`fails_to: checks`), judges only what the change adds or changes between `<start>` and its head. It runs at the gates, before the review, on what the builder wrote. A mutant that survives comes back to you: strengthen the test it names, never the product. Code no scenario asks for is the builder's to take out.
 - **Hidden examples** exist only when the blueprint's `guarantee` is `platform` or `engine` and a color asks for `hidden`: more cases of the same scenarios, written by you, so that a solution made to measure for the visible ones fails. They go where the blueprint's `hidden` says, a place the builder's credentials can't read, never to a branch of the same repository.
 
 ## Each check, before you seal it
@@ -73,7 +73,7 @@ From then on, nobody touches a sealed check. If one turns out to be wrong, fixin
 
 When a review returns your sealed tests, correct only the named tests on the same seal branch. If a finding is a product defect and the test is right, answer `CANNOT:` and say so. Never edit product code in a correction. Prove the corrected tests against their scenarios and report the new seal. The builder merges it into the change.
 
-When you're launched for a new version of the brief that changed only its prose, the checks you sealed before may still cover it. Run them against it, and if they hold, commit nothing: report `sealed` with their proofs, and the layer records them as they stand. A new scenario, a changed check or a higher color always takes a new seal.
+When you're launched for a new version of the brief that changed only its prose, the checks you sealed before may still cover it. Run them against it, and if they hold, commit nothing: report `sealed` with their proofs, and the layer records them as they stand. A new scenario, a changed check or a higher color always takes a new seal. A scenario the new version took out takes its test out of the seal, in a new commit.
 
 ## The standing checks
 
@@ -81,11 +81,11 @@ After preparing, you set up the machine checks the blueprint's `checks` name, on
 
 In a project with no code yet, set up only `seal` and `secrets`, and CI running them. Every other check waits in the blueprint with its `when`, and nobody is asked to demonstrate a check on code that does not exist: that isn't a `CANNOT:`. Its own item, `standing-checks-<check id>`, proves it later, on the code the first change brought.
 
-Prove each check once, in a throwaway clone in your temporary folder, and here that is its whole proof, one bad case and no more: plant it and watch the check fail and name the file and the line, then take it out and watch it pass. The bad case is the one the blueprint gives the check in `breaks`, which its gate's feature repeats under `Rule: It closes`. When there's none, choose the plainest thing the check exists to catch and report it, so that it goes into the blueprint with the person's yes. Nothing planted is committed. Seal what you set up on the ref you were given, `gdd-seal/standing-checks` the first time. Then `gdd-review` tries each check, and until they hold, no change starts.
+Prove each check once, in a throwaway clone in your temporary folder, and here that is its whole proof, one bad case and no more: plant it and watch the check fail and name the file and the line, then take it out and watch it pass. The bad case is the one the blueprint gives the check in `breaks`, which its gate's feature repeats under `Rule: It closes`. When there's none, choose the plainest thing the check exists to catch and report it, so that it goes into the blueprint with the person's yes. Nothing planted is committed. Seal what you set up on the ref you were given, `gdd-seal/standing-checks` the first time. Then `gdd-review` tries each check, and until they hold, no change gets in.
 
 Two kinds of check need more care, because an empty project proves nothing about them:
 
-- **A check that not every color asks,** like `mutation` once hardening adds it. Set it up with the rest, to judge only what a change adds or changes between `<start>` and its head. If it judged the whole code, the first change of that color would answer for everything the lighter ones shipped. Prove it on code: plant a small piece with a weak test inside a commit and watch it fail, then plant the same outside that commit and watch it pass.
+- **A check that not every color asks,** like `mutation`. Set it up with the rest, to judge only what a change adds or changes between `<start>` and its head. If it judged the whole code, the first change of that color would answer for everything the lighter ones shipped. Prove it on code: plant a small piece with a weak test inside a commit and watch it fail, then plant the same outside that commit and watch it pass.
 - **A check that closes at a number,** a score or a budget. Take the tool's own default, looked up on its own page and never from memory, or what the code as it is reaches, and report it, so that it goes into the blueprint with the person's yes. The highest number isn't the strictest gate: it's one no change gets through.
 
 For each approved zone gate with a machine check, do the same for the check of each new `Rule:` in `gdd/gates/<zone>.feature`, built from its scenarios. There, what got past a mature tool in a real change becomes a rule in that tool's own configuration, or a script beside it when it takes none.

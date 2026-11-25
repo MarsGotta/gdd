@@ -27,6 +27,7 @@ mod brief;
 mod closing;
 mod counting;
 mod events;
+mod gate_states;
 mod gating;
 mod items;
 mod launching;
@@ -36,6 +37,7 @@ mod own_steps;
 mod reports;
 mod sealing;
 mod shipping;
+mod thresholds;
 mod verifying;
 mod waiting;
 mod zones;
@@ -134,17 +136,15 @@ fn load(ctx: &Ctx, id: &str) -> R<Loaded> {
         .any(|e| e.event().is_some_and(|v| log::is_step(v, "ship")));
     let named = if shipped {
         crate::closing::named(&project.read_log("blueprint"))
-            .get(id)
-            .copied()
     } else {
-        None
+        Default::default()
     };
     // A revert in the main branch counts against a change in use, as a hardening record does.
     let undone = shipped
         .then(|| crate::git::Reverts::read(&ctx.root))
         .flatten()
         .and_then(|r| crate::closing::undone(&r, &entries));
-    let state = state::derive(id, &bp, &entries, gv, named, undone, time::now());
+    let state = state::derive(id, &bp, &entries, gv, &named, undone, time::now());
     Ok(Loaded {
         project,
         bp,

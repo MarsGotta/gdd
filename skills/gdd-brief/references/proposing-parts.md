@@ -10,6 +10,6 @@ Unless they asked for parts, one outcome with several details is one thing: prop
     Then, you can set a beat to practise to (about 25 minutes).
     Those times are my guesses. Shall I deliver these as two changes in that order?
 
-Without a clear yes, brief the whole request as one change. That includes a no, “you decide” or no answer. Don't ask about parts again. Never split a request on your own or split a change already under way.
+Without a clear yes, brief the whole request as one change. That includes a no, “you decide” or no answer. Don't ask about parts again. Never split a request on your own. A change already under way is cut only when its builder stopped on something it learned, as `brief-versions.md` says.
 
 With their yes, each part gets its own brief and approval and goes through its gates. The part that puts the request in use says how it closes. Each other part says `Nothing to close: a part of <the request>, which <id> closes`. Splitting doesn't lower the risk. Each part takes the color of what it touches, leaves the product working and can be undone on its own. Put anything that delivers nothing yet behind a switch. Turning it on is a separate change at the risk level of what it turns on.

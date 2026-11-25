@@ -124,6 +124,12 @@ enum Cmd {
         /// The same, read from a file: a shell eats no quote of it.
         #[arg(long, conflicts_with = "request")]
         request_file: Option<String>,
+        /// The shipped change this one fixes: it closes once a hardening record names that one.
+        #[arg(long)]
+        fixes: Option<String>,
+        /// The setup item of the backlog its gates wait for, such as the gate a new risk needs.
+        #[arg(long)]
+        waits_for: Option<String>,
         /// The brief and its scenarios, as sealed.
         files: Vec<String>,
     },
@@ -235,7 +241,7 @@ enum Cmd {
     Step {
         /// blueprint
         id: String,
-        /// prepare, harden or exam.
+        /// prepare, harden, exam or explore.
         step: String,
         #[command(flatten)]
         args: Box<c::StepArgs>,
@@ -408,6 +414,8 @@ fn main() {
             skill_version,
             request,
             request_file,
+            fixes,
+            waits_for,
             files,
         } => (
             "brief",
@@ -425,6 +433,8 @@ fn main() {
                     request: request.as_deref(),
                     request_file: request_file.as_deref(),
                     stop: stop.as_deref(),
+                    fixes: fixes.as_deref(),
+                    waits_for: waits_for.as_deref(),
                 },
             ),
         ),

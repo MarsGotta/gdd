@@ -99,7 +99,7 @@ fn preview(
 }
 
 fn show_plan(out: &mut Out, plan: &[gates::Planned]) {
-    let skipped = gating::show_skipped(plan, &[], out);
+    let skipped = gating::show_skipped(plan, &[], &[], out);
     let checks: Vec<_> = plan
         .iter()
         .filter(|p| p.skipped.is_none())
@@ -193,8 +193,22 @@ pub fn color_cmd(ctx: &Ctx, id: Option<&str>, paths: &[String]) -> Out {
             files.sort();
             files.dedup();
             preview(out, &ctx.root, &bp, &c, &files)?;
+            if super::brief::provisional_colors(ctx, &bp).contains(&c.color) {
+                out.say(format!(
+                    "{}: {}, before its brief",
+                    super::brief::provisional_said(&c.color),
+                    super::brief::provisional_way(&c.color)
+                ));
+                out.fact("provisional", true);
+            }
             super::alongside::say(ctx, &bp, id, paths, out);
             if id.is_none_or(|i| log_kind(i) == LogKind::Change) {
+                super::alongside::say_may_fix(ctx, id, paths, out);
+            }
+            // Before the standing checks hold, a try with no change, as Prepare's, has nothing to
+            // go ahead of; a change going alongside them does (decision 140).
+            let trying = id.is_none() && super::brief::standing_pending(ctx).unwrap_or(false);
+            if id.is_none_or(|i| log_kind(i) == LogKind::Change) && !trying {
                 super::brief::setup_ahead(ctx, &bp, &c, &files, out);
             }
         }

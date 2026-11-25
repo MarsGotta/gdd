@@ -11,11 +11,11 @@ metadata:
 
 Gates come first. If you decide what to check once the result is in sight, you end up checking what the agent did and not what was needed, so everything here happens before anyone builds. You do it yourself, as the orchestrator, with the person. The brief of a red change needs the deep level, as `gdd` says.
 
-**One request, one change, unless it asks for several things.** When the person asks for parts, or for things they could use separately, such as two backlog items, open `references/proposing-parts.md`, in this skill's folder, and propose parts once, before any brief. Without a clear yes, brief the whole request, however large, and never ask about parts again. Unless they asked for parts, one outcome with several details is one thing: propose nothing. Never count lines, zones or scenarios to decide.
+**One request, one change, unless it asks for several things.** When the person asks for parts, or for things they could use separately, such as two backlog items, open `references/proposing-parts.md` and propose parts once, before any brief. Without a clear yes, brief the whole request, however large, and never ask about parts again. Unless they asked for parts, one outcome with several details is one thing: propose nothing. Never count lines, zones or scenarios to decide.
 
 ## Write the rules first
 
-For a change with a brief, start in `features/<capability>.feature`. Read the rules that cover what the change touches. Write only rules it adds or changes. In an older file, leave untouched top-level scenarios before the first rule. Group only scenarios this change adds or changes.
+With a story, a ticket or acceptance criteria, open `references/from-a-ticket.md` first. For a change with a brief, start in `features/<capability>.feature`. Read the rules that cover what the change touches. Write only rules it adds or changes. In an older file, leave untouched top-level scenarios before the first rule. Group only scenarios this change adds or changes.
 
 Write one behavior per `Rule:` line. Say who acts, under what condition and what someone can observe. Replace a measurable adjective with a number and its unit. If the rule forbids an action, say what happens when someone tries it. If two readings fit, choose values for the first scenario that give different results.
 
@@ -26,7 +26,7 @@ Write one behavior per `Rule:` line. Say who acts, under what condition and what
         When you set it to 30 seconds
         Then you see "Choose a shorter time"
 
-After the seven questions below, put each scenario under the rule it checks. Each has one `When`, concrete values and one definite outcome. Spell out what someone sees in place of "correct", "adequate" or "A or B". Cover bad cases too. A few scenarios suffice on yellow. On red cover every case that matters. Keep implementation details out of scenarios: they tie the builder's hands and prove little. The builder decides how to produce the outcome.
+After the seven questions below, put each scenario under the rule it checks. Each has one `When`, concrete values and one definite outcome. Spell out what someone sees in place of "correct", "adequate" or "A or B". Cover bad cases too. A few scenarios suffice on yellow. On red cover every case that matters. Keep implementation details out of scenarios: the builder decides how to produce the outcome.
 
 ## The color: git sets the floor, and judgment can only raise it
 
@@ -42,7 +42,7 @@ On green there's no brief file, unless the blueprint's green asks for `brief-app
 
 On yellow and red, answer these seven questions before you write the change's use cases as scenarios, from the request, the constitution, the blueprint, the backlog and the code. The paths say where a change lands, not what it does to the rest of the product.
 
-1. **The product's rules.** Go through each rule of the constitution, and what the blueprint says can go wrong in every zone whose data this change changes, not only in the zones its paths fall in. Say whether this change can break each one. Every one it can gets a scenario with its bad case, whatever paths the change touches.
+1. **The product's rules.** Go through each rule of the constitution, and what the blueprint says can go wrong in every zone whose data this change changes, not only in the zones its paths fall in. Say whether this change can break each one. Every one it can gets a scenario with its bad case.
 2. **What it leaves behind.** For each thing it creates, uses up or ends, and each value it changes that another zone owns, name in the scenario what someone sees afterwards and from where else in the product. "After a car leaves, the sign at the gate shows 12 free spaces." Propose the timing under question 5.
 3. **What came before.** Which features already built it reads or changes. Open their briefs and what they left for later, and say which of that this change is: a brief that said another item would complete it may mean this one.
 4. **Twice, or from two places.** What happens if it happens twice in a row, or from two places at once: two tabs, two people, a retry after a timeout.
@@ -50,20 +50,20 @@ On yellow and red, answer these seven questions before you write the change's us
 6. **What waits for later.** If a part waits for another backlog item, does the product still tell the truth about what happened and what is available? If it doesn't, that part goes in this change with its scenario. A line under question 7 isn't enough.
 7. **What it won't do.** Tell the person under "What it won't do yet", three at most, each as a consequence they can weigh. "Until you can save a draft, closing it means starting again." Never as what stays as it was.
 
-Each answer ends up in a rule, a scenario, a technical decision, a path or a line of the brief, never as a paragraph of its own.
+Each answer ends up in a rule, a scenario, a technical decision, a path or a line of the brief, never as a paragraph of its own. A risk the product meets for the first time, which no gate covers: open `references/new-risk.md`.
 
 ## The brief
 
 Use `assets/scenarios.feature`. Tag each scenario with `@brief:<id> @id:<capability>-<n>`. Both tags belong to the scenario alone.
 
-Use `assets/brief.md`, in this skill's folder, never an older brief as the model. On yellow, six sections suffice: Request, Closing it, Rules (the feature files), What it won't do yet, Undoing it and What it touches. Red fills them all. Keep the scenario ids in the front matter.
+Use `assets/brief.md`, never an older brief as the model. On yellow, six sections suffice: Request, Closing it, Rules (the feature files), What it won't do yet, Undoing it and What it touches. Red fills them all. Keep the scenario ids in the front matter.
 
 - **What it touches.** Include:
   - the twins: a document and its translation, a feature and its reference page;
   - the wiring: where the new piece gets registered or connected, such as routes, step definitions, a module index or an installer;
   - the fixtures and the existing tests that assert the behavior the change alters;
   - the reference documents of anything it adds, such as an error code, a setting or a command.
-  Never the sealed checks or `gdd/`: those aren't the builder's. Check that each path, or its folder, exists. If you can launch agents, give this search to one that only reads and keep its list: the files it opens don't belong in your context.
+  Never the sealed checks or `gdd/`: those aren't the builder's. Check that each path, or its folder, exists. If you can launch agents, give this search to one that only reads.
 - **Scenarios it contradicts.** Search `features/` and the tests for the behavior the request changes. If a rule or scenario in `features/` says the opposite, change it and say so in the brief, because that changes what has to pass.
 - **Gates.** The change's own scenarios, the standing gates of every zone it touches and the checks its color asks for, each with the context the blueprint gives it. On yellow and red, if it changes what a person sees and no context reaches that, ask once for a design or prototype (`--of context`), apart from product questions, unless their answer in `gdd next` says there is none. If they give one, `gdd-prepare` adds it to that zone first.
 - **What connects it.** If it builds a part, say which item of the backlog it serves and what will put it in use, and set that item to `briefed` with `gdd backlog briefed <item> --brief <id>`.

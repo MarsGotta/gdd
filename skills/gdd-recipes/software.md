@@ -26,9 +26,13 @@ Many tests at the bottom, fewer in the middle and a few at the top. Where the in
 
 The shape to avoid is the inverted one: many end-to-end tests and few below them. They are slow, they fail at random, a failure doesn't say which rule broke, and on red each one has to be seen passing on a throwaway version of the whole product, where a unit test needs one of a single function.
 
-## When the tests come back weak
+## First times that usually need a gate
 
-In software, the check of planted faults that hardening proposes is mutation testing: a tool makes small wrong versions of what the change adds, one at a time, and each one the tests don't catch is a hollow test. It judges only what changed between `<start>` and the head, runs once before the review, and starts at the tool's own default, looked up on its own page. A wrong version that survives fails the gates before any reviewer reads the change. Its minutes run on every change of that color, so it comes in where the project's own figures ask for it.
+A change that brings one of these when no gate of its zone covers it waits for that gate, as `../gdd-brief/references/new-risk.md` says: the first data it stores and the way back from a migration, the first money it moves, the first personal data it keeps, the first account, sign-in or permission, the first call to a service outside and what happens when it fails, the first job that runs by itself on a schedule.
+
+## Planted faults, from the first yellow change
+
+In software, the check of planted faults is mutation testing: a tool makes small wrong versions of what the change adds, one at a time, and each one the tests don't catch is a hollow test. Propose it for yellow and red with the first change that has cases, without waiting for a hollow test to slip through: tests written by agents too often check what the code already does, and a reviewer that finds one costs a whole round. It judges only what changed between `<start>` and the head, runs once before the review, starts at the tool's own default, looked up on its own page, and carries `fails_to: checks` in the blueprint. A wrong version that survives sends the change back to whoever wrote its checks, who strengthens the test, and never to the builder, who can't touch a sealed test. Its minutes run on every change of those colors, so green goes without it.
 
 ## Signs a test sits at the wrong level
 

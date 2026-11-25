@@ -161,6 +161,14 @@ fn look(l: &Loaded, id: &str, out: &mut Out) -> R<()> {
             return Ok(());
         }
         Standing::Waiting(why) => why,
+        // What let the failure through is looked at first, with gdd-harden (decision 143).
+        Standing::Unhardened(fixed) => {
+            out.say(format!(
+                "it fixed what {fixed} shipped, and it closes once a hardening record names {fixed}, with what should have caught it, even none: propose that record to the person with gdd-harden first"
+            ));
+            out.next = Some(l.state.next.clone());
+            return Ok(());
+        }
         Standing::Closed(_) => unreachable!("in_use refuses a closed change"),
     };
     let Some(c) = p

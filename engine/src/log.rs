@@ -240,8 +240,9 @@ pub const EVENTS: [&str; 8] = [
     "seal",
     "close",
 ];
-pub const STEPS: [&str; 10] = [
+pub const STEPS: [&str; 11] = [
     "prepare", "reading", "brief", "checks", "build", "gates", "review", "ship", "harden", "exam",
+    "explore",
 ];
 pub const APPROVAL_OF: [&str; 5] = ["brief", "change", "blueprint", "gates", "debt"];
 pub const ASK_OF: [&str; 11] = [
@@ -330,6 +331,9 @@ fn fields_of(event: &str, step: &str) -> Vec<Field> {
             ("seal", StrOrNull, Writes),
             ("request", Str, May),
             ("closing", Obj, May),
+            ("alongside", OneOf(&["standing-checks"]), May),
+            ("fixes", StrOrNull, May),
+            ("waits_for", StrOrNull, May),
         ],
         ("step", "checks") => vec![("seal", Obj, Must), ("color", Obj, May)],
         ("step", "build") => vec![("claims", Arr, Writes), ("decisions", Arr, May)],
@@ -375,6 +379,11 @@ fn fields_of(event: &str, step: &str) -> Vec<Field> {
             ("asked", Int, Writes),
             ("caught", Int, Writes),
             ("missed", Arr, Writes),
+        ],
+        ("step", "explore") => vec![
+            ("zone", Str, Writes),
+            ("charter", Str, Writes),
+            ("found", Int, Writes),
         ],
         _ => vec![],
     }
@@ -568,7 +577,7 @@ pub fn shape(v: &Value, writing: bool) -> (Vec<String>, Vec<String>) {
             a.check("check", T::Str, Need::Must, g.get("check"), &at);
             a.check(
                 "result",
-                T::OneOf(&["pass", "fail"]),
+                T::OneOf(&["pass", "fail", "reported"]),
                 Need::Must,
                 g.get("result"),
                 &at,

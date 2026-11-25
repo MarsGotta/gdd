@@ -349,3 +349,30 @@ fn what_the_change_takes_as_true_unseen_is_shown_as_unchecked() {
     record(&plain, RULES);
     assert!(!ok(&plain, &["next", "lines"]).has("unchecked"));
 }
+
+#[test]
+fn a_rule_from_a_ticket_names_its_criterion_in_the_approval() {
+    let r = Repo::new();
+    let rules = "@from:APP-142#2
+Rule: Keep the title
+  @id:one
+  Scenario: Read one title
+    When I open it
+@assumed
+@from:APP-142#3
+Rule: Wrap long lines
+@question
+Rule: Who can edit?
+";
+    record(&r, rules);
+    let next = ok(&r, &["next", "lines"]);
+    assert_eq!(
+        approval_lines(&next),
+        "rule: Keep the title (from APP-142#2)\nyours: Wrap long lines (from APP-142#3)\nlater: Who can edit?\nread: features/lines.feature"
+    );
+    assert!(next.has("whose words they were"), "{}", next.out);
+    // Without a ticket, nothing is said of one.
+    let plain = Repo::new();
+    record(&plain, RULES);
+    assert!(!ok(&plain, &["next", "lines"]).has("'from'"));
+}

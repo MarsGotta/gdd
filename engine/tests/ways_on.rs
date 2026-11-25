@@ -396,7 +396,7 @@ fn agreeing_to_leave_a_spent_change_for_later_closes_the_question() {
 // ----- 3. only standing-checks comes before every change -----
 
 #[test]
-fn unfinished_standing_checks_hold_the_next_brief() {
+fn one_change_goes_alongside_unfinished_standing_checks_and_its_gates_wait_for_them() {
     let r = Repo::new();
     let id = "standing-checks";
     r.write("gdd/backlog.md", &BACKLOG.replace("| done |", "| todo |"));
@@ -405,24 +405,54 @@ fn unfinished_standing_checks_hold_the_next_brief() {
     }
     let n = next_of(&r, id);
     assert_eq!(blocked_of(&n), "cannot");
-    assert!(n.has("before any change"), "{}", n.out);
-    assert!(r.gdd(&["next"]).has("before any change"));
-    let b = r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);
-    assert_ne!(b.code, 0, "{}", b.out);
-    assert!(b.has("gdd next standing-checks"));
-    assert!(r.log_lines("g1").is_empty());
-    assert_ne!(
-        r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code,
-        0
-    );
-    assert_eq!(command_of(&next_of(&r, "g1")), "gdd next standing-checks");
-    assert!(!r.gdd(&["next"]).has("gdd ask g1"));
-    r.write("gdd/backlog.md", BACKLOG);
+    assert!(n.has("before any change gets through its gates"), "{}", n.out);
+    let all = r.gdd(&["next"]);
+    assert!(all.has("before any change gets through its gates"), "{}", all.out);
+    assert_eq!(all.facts["backlog_alongside"], "g1", "{}", all.out);
+    // One change of the product goes alongside them (decision 140).
     assert_eq!(step_of(&next_of(&r, "g1")), "brief");
-    assert_eq!(
-        r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code,
-        0
-    );
+    let b = r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);
+    assert_eq!(b.code, 0, "{}", b.out);
+    assert!(b.has("goes alongside them"), "{}", b.out);
+    assert_eq!(r.log_lines("g1")[0]["alongside"], "standing-checks");
+    // A second one waits for them, with no question to anybody.
+    for _ in 0..2 {
+        let second = r.gdd(&["brief", "g2", "--paths", "src/core/app.txt"]);
+        assert_eq!(second.facts["refused"], "standing-checks", "{}", second.out);
+        assert!(second.has("g1 is that one"), "{}", second.out);
+    }
+    assert!(r.log_lines("g2").is_empty());
+    let all = r.gdd(&["next"]);
+    assert!(all.facts["backlog_alongside"].is_null(), "{}", all.out);
+    let n = next_of(&r, "g2");
+    assert_eq!((step_of(&n), command_of(&n)), ("wait".into(), "gdd next standing-checks".into()));
+    // g1 is built, and its gates wait for the standing checks, again with no question.
+    r.commit_on("work/g1", Some("main"), &[("src/ui/page.txt", "updated\n")], "Build");
+    let built = r.report("g1", "build", &report_block("gdd-build", "done"), &[]);
+    assert_eq!(built.code, 0, "{}", built.out);
+    let n = next_of(&r, "g1");
+    assert_eq!((step_of(&n), blocked_of(&n)), ("wait".into(), "standing-checks".into()), "{}", n.out);
+    for _ in 0..2 {
+        let g = r.gdd(&["gates", "g1"]);
+        assert_eq!(g.facts["refused"], "standing-checks", "{}", g.out);
+    }
+    assert!(!next_of(&r, "g1").has("gdd ask g1"));
+    // They ship: g1 takes them in before its first gates.
+    r.write("tests/secrets.sh", "true\n");
+    r.commit("The standing checks");
+    r.write("gdd/backlog.md", BACKLOG);
+    let n = next_of(&r, "g1");
+    assert_eq!(step_of(&n), "gates", "{}", n.out);
+    assert!(n.has("takes them in before its first gates"), "{}", n.out);
+    assert!(command_of(&n).contains("merge main into work/g1"), "{}", n.out);
+    assert_eq!(r.gdd(&["gates", "g1"]).facts["refused"], "standing-checks");
+    r.merge_into("work/g1", &["main"]);
+    let g = r.gdd(&["gates", "g1"]);
+    assert_eq!(g.code, 0, "{}", g.out);
+    // A change briefed once they hold goes as before.
+    let later = r.gdd(&["brief", "g2", "--paths", "src/ui/second.txt"]);
+    assert_eq!(later.code, 0, "{}", later.out);
+    assert!(r.log_lines("g2")[0].get("alongside").is_none());
 }
 
 #[test]
@@ -1189,4 +1219,37 @@ fn a_copy_git_wont_read_is_never_taken_for_no_repository() {
     let v = r.gdd_env(&["verify", "--all"], &told);
     assert_eq!((v.code, &v.facts["git"]), (0, &json!(true)), "{}", v.out);
     assert_eq!(step_of(&r.gdd_env(&["next", "g1"], &told)), "build");
+}
+
+/// What the review of decision 140 found: a change alongside the standing checks still hears of a
+/// zone's gate it would go ahead of; `parallel` never offers room the standing checks don't give;
+/// and a change briefed once they held is never held by a backlog that later lost their row.
+#[test]
+fn going_alongside_the_standing_checks_keeps_the_other_holds_in_sight() {
+    let r = Repo::with(&BLUEPRINT.replace("limits:\n  lines_per_change", "parallel: 1\nlimits:\n  lines_per_change"));
+    r.write(
+        "gdd/backlog.md",
+        "# Backlog\n\n| Id | What | Color | Phase | Brief | State |\n|---|---|---|---|---|---|\n| standing-checks | Set up the checks | red | 0 | | todo |\n| gates-pay | The gate of payments | red | 1 | | todo |\n| g1 | A green change | green | 1 | | todo |\n| g2 | Another | green | 1 | | todo |\n",
+    );
+    let c = r.gdd(&["color", "r1", "--paths", "src/pay/pay.txt"]);
+    assert_eq!(c.facts["setup_ahead"], serde_json::json!(["gates-pay"]), "{}", c.out);
+    assert_eq!(r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code, 0);
+    // With one open alongside, the standing checks say why the next waits, not parallel.
+    let second = r.gdd(&["brief", "g2", "--paths", "src/ui/two.txt"]);
+    assert_eq!(second.facts["refused"], "standing-checks", "{}", second.out);
+    let all = r.gdd(&["next"]);
+    assert!(all.has("no room for another change while the standing checks are set up"), "{}", all.out);
+    assert!(!all.has("raises parallel"), "{}", all.out);
+}
+
+#[test]
+fn a_backlog_that_lost_the_standing_checks_row_holds_no_gates_of_a_change_briefed_after_them() {
+    let r = Repo::new();
+    assert_eq!(r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code, 0);
+    r.commit_on("work/g1", Some("main"), &[("src/ui/page.txt", "updated\n")], "Build");
+    assert_eq!(r.report("g1", "build", &report_block("gdd-build", "done"), &[]).code, 0);
+    r.write("gdd/backlog.md", &BACKLOG.replace("| standing-checks | Set up the checks | red | 0 | | done |\n", ""));
+    let g = r.gdd(&["gates", "g1"]);
+    assert_eq!(g.code, 0, "{}", g.out);
+    assert!(!r.gdd(&["next"]).has("alongside the standing checks"));
 }

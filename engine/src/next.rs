@@ -37,7 +37,7 @@ fn setup_checks(id: &str, p: &Progress, lim: &Limits, say: &str) -> Next {
             .is_some_and(|c| p.asks.iter().any(|a| a.line > c && a.answered));
         if !answered {
             let order = if id == "standing-checks" {
-                "The standing checks come before any change."
+                "The standing checks hold before any change gets through its gates."
             } else {
                 "If they leave it for later, it stays in the backlog and the next request doesn't wait for it."
             };
@@ -169,7 +169,7 @@ pub fn cap_spent(id: &str, lim: &Limits) -> Next {
     }
     let (advice, proposal) = if id == "standing-checks" {
         (
-            "Every change waits for the standing checks. Ask for the extra attempt now.",
+            "Every change waits for the standing checks before its gates. Ask for the extra attempt now.",
             "<what will wait>. Shall I make one more attempt?",
         )
     } else {

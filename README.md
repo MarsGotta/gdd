@@ -180,7 +180,7 @@ Underneath, every change goes through the method's five moments. What carries ea
 
 | Moment | What it's for | What holds it up |
 |---|---|---|
-| **1. Prepare.** At the start, and again when a gate is missing, isn't needed or is badly defined | It has two parts. First the blueprint: what can never happen in your product, what is delicate, which gates you need and where a person approves. Then the gates it defined get built. You build them, or your team does, with the agents and tools you use, and you try to beat them on purpose. No change starts until they hold. | `gdd-prepare` writes the blueprint and the constitution with you. `gdd-checks` sets up the standing checks and `gdd-review` tries them. It all stays in `gdd/blueprint.md`, `gdd/constitution.md` and `gdd/gates/`. |
+| **1. Prepare.** At the start, and again when a gate is missing, isn't needed or is badly defined | It has two parts. First the blueprint: what can never happen in your product, what is delicate, which gates you need and where a person approves. Then the gates it defined get built. You build them, or your team does, with the agents and tools you use, and you try to beat them on purpose. No change gets in until they hold. | `gdd-prepare` writes the blueprint and the constitution with you. `gdd-checks` sets up the standing checks and `gdd-review` tries them. It all stays in `gdd/blueprint.md`, `gdd/constitution.md` and `gdd/gates/`. |
 | **2. Brief.** On every change, before it starts | What has to be true gets written down before anyone builds: the rules the change touches, a few scenarios and a first estimate of its risk. | `gdd-brief` writes the rules, the scenarios and the color, in `features/` and `gdd/briefs/`. On red, `gdd-review` reads the brief before you approve it. `gdd-checks` writes a test for each scenario, sees it fail and seals it. The layer refuses a scenario with no rule above it, and it lets nobody build before your yes, where your blueprint asks for one. |
 | **3. Execute.** On every change | An agent builds the change and gets through the gates without touching what judges it. A reviewer that heard none of it tries to make it fail, and the risk is worked out again from what was touched. | `gdd-build` builds. The layer runs the gates from the seal, counts the limits and writes the log in `gdd/log/`. `gdd-review` reviews with a clean context. Your CI, once you set it up, checks every log and runs the gates again where no agent writes. |
 | **4. Close.** Once the change is in use | You look at whether it helped, against what its brief expected before anyone built it. The verdict is yours, or belongs to whoever your blueprint names: yes, not yet or no. | `gdd-brief` writes in the brief what is expected, the signal that will show it and where to look. The layer keeps what is in use in sight, with how long it has waited, and holds nothing up. When you ask, `gdd-close` gathers what can be seen there, proposes no verdict, and the layer records yours in `gdd/log/`. |
@@ -212,14 +212,14 @@ How far that holds depends on where your gates run. With the skills alone, the a
 | Go through every step of the skills, and what happens inside | [The guide to the skills](skills/README.md) |
 | Look up the files the skills leave, and their templates | [CONTRACT.md](skills/CONTRACT.md) |
 | Know why the skills are the way they are | [DESIGN.md](skills/DESIGN.md) |
-| Read the reference for everything else | [The Manifesto](https://gate-driven.dev/en/manifesto/), version 0.11 |
+| Read the reference for everything else | [The Manifesto](https://gate-driven.dev/en/manifesto/), version 0.12 |
 
 ## What's in this repository
 
-- [`manifesto/`](manifesto/): the Manifesto, version 0.11, in English and Spanish. If anything else contradicts it, the Manifesto wins.
+- [`manifesto/`](manifesto/): the Manifesto, version 0.12, in English and Spanish. If anything else contradicts it, the Manifesto wins.
 - [`web/`](web/): the source of [gate-driven.dev](https://gate-driven.dev), where the whole method is explained in both languages.
 - [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. They install as a plugin on Claude Code, Codex and Antigravity.
-- [`engine/`](engine/): the layer, `gdd`, which the skills need from version 0.11: it keeps the order, the accounting and the evidence of every change, and the agents keep the judgment. It isn't an engine in the method's sense: while an agent runs it, it's within the agent's reach, and what keeps it honest is your CI.
+- [`engine/`](engine/): the layer, `gdd`, which the skills need from version 0.12: it keeps the order, the accounting and the evidence of every change, and the agents keep the judgment. It isn't an engine in the method's sense: while an agent runs it, it's within the agent's reach, and what keeps it honest is your CI.
 - [`evals/`](evals/): scenarios that check, with a real model, how an agent behaves with those skills.
 
 ## License

@@ -43,6 +43,7 @@ If a check should cover the missed files, correct its condition in the draft and
 Run every check on the main branch before anyone changes anything, and write down what fails in `gdd/debt.md`: the check, its command, the number, the commit and the date.
 
 - Known debt never blocks, and never grows. Gates don't block what already failed, but they block anything new: a baseline may only go down, and lowering it needs no one's approval.
+- If the team keeps its work in a tracker, open `../gdd-recipes/trackers.md` before you write the backlog: the backlog follows it.
 - Each line of debt becomes an item of the backlog, with the color of its zone. Where it helps, recommend a refactor.
 - A test that fails today is debt too, visible in the backlog and in the log, never silently skipped.
 - Recording something as debt loosens a check, so the person approves it as part of approving the blueprint.

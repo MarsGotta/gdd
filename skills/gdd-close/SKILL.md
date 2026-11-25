@@ -47,12 +47,12 @@ Only a person's own words are a verdict: the change's author's, or those of whoe
 
 Record it at once, in their words, with the command the layer printed: `gdd close <id> --verdict <yes, not-yet or no> --who <person> --where <conversation, commit or pull request> --saw "<what they saw: their words, or what you showed them>"`.
 
-- **Yes.** It is closed. Nothing else to do.
+- **Yes.** It is closed. If its `Expected:` put a line of the constitution's product to the test, such as the biggest doubt, propose marking that line as seen, through a normal change.
 - **Not yet.** It stays in use and in sight. Don't ask again until they come back to it.
-- **No.** It is closed too, and nothing more is built on it. The layer prints two ways out, and you propose the one you'd take, for a yes. If it works as written and didn't help: a new request in the backlog, or nothing if they accept it as it is. If it broke a rule or did harm: the fix is a normal change through `gdd-brief`, and a hardening proposal through `gdd-harden`, because a gate should have caught it. Add `--then <the backlog item, harden or none>` when they already said which.
+- **No.** It is closed too, and nothing more is built on it. The layer prints two ways out, and you propose the one you'd take, for a yes. If it works as written and didn't help: a new request in the backlog, or nothing if they accept it as it is. If it broke a rule or did harm: the fix is a normal change through `gdd-brief`, and a hardening proposal through `gdd-harden`, because a gate should have caught it. Add `--then <the backlog item, harden or none>` when they already said which. If its `Expected:` put a line of the product to the test, that line was wrong: propose rewriting it with what was seen, and the order of the backlog with it, before the next item starts.
 
 A verdict you recorded wrong is corrected with `gdd correct <id> --line <n> --void "<what was wrong>"`, and the change waits again.
 
 ## What promised nothing
 
-A change whose brief says `Nothing to close` closes by itself once the days in the blueprint's `closing` go by with nothing recorded against it. Nobody is asked. If a hardening record names it before that, or the main branch reverts what it shipped, it waits for the person's verdict like the rest.
+A fix of what a change shipped, briefed with `--fixes`, first waits for a hardening record that names that change, as `gdd next` says: propose it with `gdd-harden`. A change whose brief says `Nothing to close` closes by itself once the days in the blueprint's `closing` go by with nothing recorded against it. Nobody is asked. If a hardening record names it before that, or the main branch reverts what it shipped, it waits for the person's verdict like the rest.

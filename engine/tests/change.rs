@@ -3203,3 +3203,344 @@ fn changes_run_alongside_while_they_share_no_file() {
     let bad = Repo::with(&BLUEPRINT.replacen("contract: gdd/1\n", "contract: gdd/1\nparallel: 0\n", 1));
     assert!(bad.gdd(&["next"]).has("parallel is not a whole number of changes from 1 on"));
 }
+
+#[test]
+fn the_metrics_count_the_brief_approvals_that_brought_a_correction() {
+    let r = Repo::new();
+    let approve = |id: &str| {
+        let a = r.gdd(&[
+            "approve",
+            id,
+            "--of",
+            "brief",
+            "--who",
+            "Person",
+            "--where",
+            "conversation",
+            &format!("gdd/briefs/{id}.md"),
+            &format!("features/{id}.feature"),
+        ]);
+        assert_eq!(a.code, 0, "{}", a.out);
+    };
+    let ask = |id: &str| assert_eq!(r.gdd(&["ask", id, "--of", "brief", "Shall I build it?"]).code, 0);
+    // The person corrects the first brief, and approves its second version.
+    yellow_brief(&r, "y8", "src/core/app.txt");
+    ask("y8");
+    assert_eq!(r.gdd(&["answer", "y8", "It should say fine"]).code, 0);
+    r.write("features/y8.feature", &ok_feature("y8").replace("says ok", "says fine"));
+    let files = ["gdd/briefs/y8.md", "features/y8.feature"];
+    assert_eq!(r.gdd(&[&["seal", "y8"][..], &files].concat()).code, 0);
+    let again = r.gdd(&[&["brief", "y8"][..], &files, &["--paths", "src/core/app.txt"]].concat());
+    assert_eq!(again.code, 0, "{}", again.out);
+    ask("y8");
+    approve("y8");
+    // The second is approved as it came, and the third was never asked.
+    yellow_brief(&r, "y9", "src/core/two.txt");
+    ask("y9");
+    approve("y9");
+    yellow_brief(&r, "y10", "src/core/three.txt");
+    // A stop only ends the question: taken up again as it was and approved, nothing was corrected.
+    yellow_brief(&r, "y11", "src/core/four.txt");
+    ask("y11");
+    assert_eq!(r.gdd(&["brief", "y11", "--stop", "Later, they said"]).code, 0);
+    let files = ["gdd/briefs/y11.md", "features/y11.feature"];
+    let up = r.gdd(&[&["brief", "y11"][..], &files, &["--paths", "src/core/four.txt"]].concat());
+    assert_eq!(up.code, 0, "{}", up.out);
+    approve("y11");
+    let m = r.gdd(&["metrics", "--all", "--format", "json"]);
+    let body: Vec<&str> = m.out.lines().collect();
+    let all: serde_json::Value = serde_json::from_str(&body[..body.len() - 1].join("\n")).unwrap();
+    let rows = all["tables"]["changes"].as_array().unwrap().clone();
+    let of = |id: &str| rows.iter().find(|c| c["change"] == id).unwrap()["brief_corrections"].clone();
+    let none = serde_json::Value::Null;
+    assert_eq!((of("y8"), of("y9"), of("y10")), (serde_json::json!(1), serde_json::json!(0), none));
+    assert_eq!(of("y11"), serde_json::json!(0));
+    let s = r.gdd(&["metrics", "--all", "--summary"]);
+    assert!(s.has("briefs whose approval brought a correction: yellow 1 of 3"), "{}", s.out);
+}
+
+/// A change cut where its builder stopped on what it learned (decision 139): a new version leaves
+/// the scenario out, the checks role takes its test out of the seal, and what was built for the
+/// rest gets through its gates, with no word of the test that left.
+#[test]
+fn a_change_cut_where_its_builder_stopped_ships_without_the_scenario_it_learned_about() {
+    let r = Repo::new();
+    let two = "Feature: Ok\n  Rule: The app reports its status\n    @brief:cut @id:cut-1\n    Scenario: It says ok\n      Given the app\n      When I read its status\n      Then it says ok\n  Rule: The app reports its age\n    @brief:cut @id:cut-2\n    Scenario: It says how old it is\n      Given the app\n      When I read its age\n      Then it says 3 years\n";
+    yellow_brief(&r, "cut", "src/core/app.txt");
+    r.write("features/cut.feature", two);
+    let brief = "gdd/briefs/cut.md";
+    let text = r.read(brief).replace("scenarios: [cut-1]", "scenarios: [cut-1, cut-2]");
+    r.write(brief, &text);
+    assert_eq!(r.gdd(&["seal", "cut", brief, "features/cut.feature"]).code, 0);
+    let b = r.gdd(&["brief", "cut", brief, "features/cut.feature", "--paths", "src/core/app.txt"]);
+    assert_eq!(b.code, 0, "{}", b.out);
+    approved(&r, "cut");
+    r.commit_on(
+        "gdd-seal/cut",
+        None,
+        &[
+            ("tests/run.sh", "sh tests/cut-1.sh && sh tests/cut-2.sh\n"),
+            ("tests/cut-1.sh", "grep -q ok src/core/app.txt # gdd:cut-1\n"),
+            ("tests/cut-2.sh", "grep -q years src/core/app.txt # gdd:cut-2\n"),
+        ],
+        "Seal",
+    );
+    let proofs = serde_json::json!([
+        {"check": "tests", "test": "gdd:cut-1 it says ok", "wrong": "says nothing", "case": "rejects",
+         "command": "sh tests/cut-1.sh", "exit": 1, "tail": "no ok"},
+        {"check": "tests", "test": "gdd:cut-2 it says its age", "wrong": "says nothing", "case": "rejects",
+         "command": "sh tests/cut-2.sh", "exit": 1, "tail": "no years"},
+    ]);
+    let both = report_text("gdd-checks", "sealed", &format!("```json\n{proofs}\n```"));
+    let c = r.report("cut", "checks", &both, &[]);
+    assert_eq!(c.code, 0, "{}", c.out);
+    let start = r.git(&["rev-parse", "gdd-seal/cut"]);
+    r.commit_on("work/cut", Some(&start), &[("src/core/app.txt", "it says ok\n")], "Round 1");
+    let says = report_text("gdd-build", "stopped", "CANNOT: the app keeps no date it was made on, so it can't say its age (@id:cut-2)");
+    let stop = r.report("cut", "build", &says, &[]);
+    assert_eq!(stop.code, 0, "{}", stop.out);
+    // The person takes the cut: the new version keeps the status and leaves the age for later.
+    let backlog = r.gdd(&["backlog", "add", "app-age", "--what", "The app says how old it is, once it keeps the date it was made on", "--color", "yellow"]);
+    assert_eq!(backlog.code, 0, "{}", backlog.out);
+    r.write("features/cut.feature", &ok_feature("cut"));
+    r.write(brief, &r.read(brief).replace("scenarios: [cut-1, cut-2]", "scenarios: [cut-1]"));
+    new_version(&r, "cut", &[brief, "features/cut.feature"], &["--paths", "src/core/app.txt"]);
+    approved(&r, "cut");
+    assert_eq!(r.gdd(&["next", "cut"]).facts["state"]["next"]["step"], "checks");
+    // The checks role takes the test of the scenario that left out of the seal.
+    let dir = r.dir.path().join("seal-cut");
+    let path = dir.to_str().unwrap();
+    r.git(&["worktree", "add", "-q", path, "gdd-seal/cut"]);
+    git(&dir, &["rm", "-q", "tests/cut-2.sh"]);
+    std::fs::write(dir.join("tests/run.sh"), "sh tests/cut-1.sh\n").unwrap();
+    git(&dir, &["commit", "-qam", "The age waits for its own change"]);
+    r.git(&["worktree", "remove", path]);
+    assert_eq!(r.report("cut", "checks", &sealed_report(&["tests"]), &[]).code, 0);
+    merge_corrected_seal(&r, "cut");
+    let built = r.report("cut", "build", &build_report(""), &[]);
+    assert_eq!(built.facts["next"], "gates", "{}", built.out);
+    let gates = r.gdd(&["gates", "cut"]);
+    assert_eq!(gates.facts["next"], "review", "{}", gates.out);
+    let review = r.gdd(&["launch", "cut", "review"]);
+    let prompt = review.facts["prompt"].as_str().unwrap();
+    assert!(!prompt.contains("cut-2"), "{prompt}");
+}
+
+/// A color the first yes left provisional is asked when its first change comes (decision 141):
+/// `gdd color` and `gdd next` say so, its brief waits with no question counted, and once the
+/// person decided and the blueprint says it, the brief goes.
+#[test]
+fn a_provisional_color_waits_for_the_person_before_its_first_brief() {
+    let r = Repo::with(&BLUEPRINT.replace("limits:\n  lines_per_change", "provisional: [yellow]\nlimits:\n  lines_per_change"));
+    let all = r.gdd(&["next"]);
+    assert!(all.has("still the template's proposal for yellow"), "{}", all.out);
+    let c = r.gdd(&["color", "y1", "--paths", "src/core/app.txt"]);
+    assert_eq!(c.facts["provisional"], true, "{}", c.out);
+    assert!(c.has("gdd ask blueprint --of blueprint"), "{}", c.out);
+    r.write("gdd/briefs/y1.md", "---\ncontract: gdd/1\nid: y1\nversion: 1\ncolor: yellow\nscenarios: [y1-1]\n---\n\n# Ok\n");
+    r.write("features/y1.feature", &ok_feature("y1"));
+    assert_eq!(r.gdd(&["seal", "y1", "gdd/briefs/y1.md", "features/y1.feature"]).code, 0);
+    for _ in 0..2 {
+        let b = r.gdd(&["brief", "y1", "gdd/briefs/y1.md", "features/y1.feature", "--paths", "src/core/app.txt"]);
+        assert_eq!(b.facts["refused"], "provisional", "{}", b.out);
+        assert!(b.has("references/provisional.md"), "{}", b.out);
+    }
+    assert!(r.log_lines("y1").iter().all(|v| v["step"] != "brief"), "only its seal is logged");
+    assert!(!r.gdd(&["next", "y1"]).has("gdd ask y1"));
+    // A green change goes as before.
+    assert_eq!(r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code, 0);
+    // An edit of the copy alone lifts nothing: the decision counts once it is on the main branch.
+    r.write("gdd/blueprint.md", BLUEPRINT);
+    let edited = r.gdd(&["brief", "y1", "gdd/briefs/y1.md", "features/y1.feature", "--paths", "src/core/app.txt"]);
+    assert_eq!(edited.facts["refused"], "provisional", "{}", edited.out);
+    // The person decided yellow, and the main branch no longer has it as provisional.
+    r.commit("Yellow, as the person decided");
+    let b = r.gdd(&["brief", "y1", "gdd/briefs/y1.md", "features/y1.feature", "--paths", "src/core/app.txt"]);
+    assert_eq!(b.code, 0, "{}", b.out);
+    assert!(!r.gdd(&["next"]).has("template's proposal"));
+}
+
+/// A check that judges the change's own tests, such as one of planted faults, sends them back to
+/// whoever wrote them when it fails, and never to the builder, who can't touch a sealed test
+/// (decision 142).
+#[test]
+fn a_failing_check_of_planted_faults_goes_back_to_whoever_wrote_the_checks() {
+    let bp = BLUEPRINT
+        .replace(
+            "  - id: review\n    type: reviewer\n",
+            "  - id: mutants\n    type: machine\n    command: sh tests/mutants.sh\n    runs: before review\n    fails_to: checks\n  - id: review\n    type: reviewer\n",
+        )
+        .replace(
+            "  yellow:\n    checks: [brief-approval, seal, tests, slow, review]",
+            "  yellow:\n    checks: [brief-approval, seal, tests, slow, mutants, review]",
+        );
+    let r = Repo::with(&bp);
+    r.write("tests/mutants.sh", "test -f tests/strong || { echo 'a mutant survived: the app may say anything'; exit 1; }\n");
+    r.commit("A check of planted faults");
+    checked(&r, "m1");
+    let start = r.git(&["rev-parse", "gdd-seal/m1"]);
+    r.commit_on("work/m1", Some(&start), &[("src/core/app.txt", "it says ok\n")], "Round 1");
+    assert_eq!(r.report("m1", "build", &build_report(""), &[]).code, 0);
+    let g = r.gdd(&["gates", "m1"]);
+    assert!(g.has("goes back to whoever wrote them (checks)"), "{}", g.out);
+    assert_eq!(r.log_lines("m1").last().unwrap()["fix_role"], "checks");
+    let n = r.gdd(&["next", "m1"]);
+    assert_eq!(n.facts["state"]["next"]["step"], "checks", "{}", n.out);
+    // The builder can't take it: the tests are what is weak.
+    let early = r.report("m1", "build", &report_block("gdd-build", "done"), &[]);
+    assert_eq!(early.facts["refused"], "out-of-order", "{}", early.out);
+    let c = r.gdd(&["launch", "m1", "checks"]);
+    let prompt = c.facts["prompt"].as_str().unwrap();
+    assert!(prompt.contains("found what your sealed tests let through"), "{prompt}");
+    assert!(prompt.contains("a mutant survived"), "{prompt}");
+    // The checks role strengthens them, the builder merges the seal, and the gates pass.
+    r.commit_on("gdd-seal/m1", None, &[("tests/strong", "the test now looks at what the app says\n")], "Stronger tests");
+    let sealed = r.report("m1", "checks", &sealed_report(&["tests"]), &[]);
+    assert_eq!(sealed.code, 0, "{}", sealed.out);
+    merge_corrected_seal(&r, "m1");
+    let merged = r.report("m1", "build", &report_block("gdd-build", "done"), &[]);
+    assert_eq!(merged.facts["next"], "gates", "{}", merged.out);
+    let again = r.gdd(&["gates", "m1"]);
+    assert_eq!(again.facts["next"], "review", "{}", again.out);
+    let m = r.gdd(&["metrics", "--all", "--summary"]);
+    assert!(m.has("changes the gates sent back to whoever wrote their checks: yellow 1"), "{}", m.out);
+}
+
+/// A check the blueprint has report runs and is written without stopping a change, and one that
+/// passes and fails on the same commit goes into quarantine by the person's rule (decision 145).
+#[test]
+fn a_reporting_check_stops_nothing_and_a_flaky_one_goes_into_quarantine() {
+    let place = tempfile::tempdir().unwrap();
+    let counter = place.path().join("count");
+    let flips = format!(
+        "sh -c 'n=$(cat {c} 2>/dev/null || echo 0); n=$((n+1)); echo $n > {c}; [ $((n % 2)) -eq 0 ]'",
+        c = counter.display()
+    );
+    let bp = BLUEPRINT
+        .replace("    command: sh -c 'echo the slow check ran'\n", &format!("    command: \"{}\"\n", flips.replace('"', "\\\"")))
+        .replace("context: []", "quarantine: 2\ncontext: []")
+        .replace("      runs_before_review: 1\n", "      runs_before_review: 3\n");
+    let r = Repo::with(&bp);
+    assert_eq!(r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code, 0);
+    r.commit_on("work/g1", Some("main"), &[("src/ui/page.txt", "a new page\n")], "Build");
+    assert_eq!(r.report("g1", "build", &report_block("gdd-build", "done"), &[]).code, 0);
+    // The first run fails on slow, and the same commit judged again passes it: flaky.
+    let first = r.gdd(&["gates", "g1"]);
+    assert_eq!(first.facts["passed"], false, "{}", first.out);
+    let again = r.gdd(&["gates", "g1"]);
+    assert_eq!(again.facts["passed"], true, "{}", again.out);
+    assert!(again.has("slow passed and failed on the same commit"), "{}", again.out);
+    assert!(again.has("for the next 2 changes"), "{}", again.out);
+    assert_eq!(r.log_lines("g1").last().unwrap()["flaky"], serde_json::json!(["slow"]));
+    assert!(r.read("gdd/backlog.md").contains("| harden-flaky-slow |"));
+    // The next change: slow fails again, and in quarantine it only reports.
+    assert_eq!(r.gdd(&["brief", "g2", "--paths", "src/ui/other.txt"]).code, 0);
+    r.commit_on("work/g2", Some("main"), &[("src/ui/other.txt", "another page\n")], "Build");
+    assert_eq!(r.report("g2", "build", &report_block("gdd-build", "done"), &[]).code, 0);
+    let g2 = r.gdd(&["gates", "g2"]);
+    assert_eq!(g2.facts["passed"], true, "{}", g2.out);
+    let slow = r.log_lines("g2").last().unwrap()["gates"].as_array().unwrap().iter().find(|g| g["check"] == "slow").cloned().unwrap();
+    assert_eq!((slow["result"].clone(), slow["reports"].clone()), (serde_json::json!("reported"), serde_json::json!(true)));
+    // Nobody counts it as a failure: the gates passed at the first try and no round was spent.
+    let limits = r.gdd(&["limits", "g2"]);
+    assert_eq!(limits.code, 0, "{}", limits.out);
+}
+
+#[test]
+fn a_check_the_blueprint_has_report_fails_without_stopping_the_change() {
+    let bp = BLUEPRINT.replace(
+        "    command: sh -c 'echo the slow check ran'\n    runs: before review\n",
+        "    command: sh -c 'echo it found something; exit 1'\n    runs: before review\n    state: reports\n",
+    );
+    let r = Repo::with(&bp);
+    assert_eq!(r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code, 0);
+    r.commit_on("work/g1", Some("main"), &[("src/ui/page.txt", "a new page\n")], "Build");
+    assert_eq!(r.report("g1", "build", &report_block("gdd-build", "done"), &[]).code, 0);
+    let g = r.gdd(&["gates", "g1"]);
+    assert_eq!(g.facts["passed"], true, "{}", g.out);
+    assert_eq!(g.facts["next"], "review", "{}", g.out);
+    let slow = r.log_lines("g1").last().unwrap()["gates"].as_array().unwrap().iter().find(|g| g["check"] == "slow").cloned().unwrap();
+    assert_eq!(slow["reports"], true);
+    assert_eq!(slow["result"], "reported");
+    assert_eq!(r.gdd(&["limits", "g1"]).code, 0, "a reported failure spends no round");
+}
+
+/// What a reporting check fails stops no later tier, and the seal never reports.
+#[test]
+fn a_reporting_check_that_fails_lets_the_later_tiers_run() {
+    let bp = BLUEPRINT.replace(
+        "    command: sh tests/run.sh
+    runs: each round
+",
+        "    command: sh tests/run.sh
+    runs: each round
+  - id: lint
+    type: machine
+    command: sh -c 'echo a warning; exit 1'
+    runs: each round
+    state: reports
+",
+    ).replace("    checks: [seal, tests, slow, review]", "    checks: [seal, tests, lint, slow, review]");
+    let r = Repo::with(&bp);
+    assert_eq!(r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code, 0);
+    r.commit_on("work/g1", Some("main"), &[("src/ui/page.txt", "a new page\n")], "Build");
+    assert_eq!(r.report("g1", "build", &report_block("gdd-build", "done"), &[]).code, 0);
+    let g = r.gdd(&["gates", "g1"]);
+    assert_eq!(g.facts["passed"], true, "{}", g.out);
+    let ran: Vec<String> = r.log_lines("g1").last().unwrap()["gates"].as_array().unwrap().iter().map(|g| g["check"].as_str().unwrap().to_string()).collect();
+    assert!(ran.contains(&"slow".to_string()), "the tier after it ran: {ran:?}");
+    let sealed = gdd::blueprint::Blueprint::parse(&BLUEPRINT.replace("    runs: each round
+  - id: tests", "    runs: each round
+    state: reports
+  - id: tests")).unwrap();
+    assert!(sealed.problems().iter().any(|p| p.contains("the seal always blocks")), "{:?}", sealed.problems());
+    assert!(!sealed.check("seal").unwrap().reports());
+}
+
+/// A change that brings a risk no gate covers waits for the gate it needs before its gates, and is
+/// briefed and built meanwhile (decision 146).
+#[test]
+fn a_change_waits_for_the_gate_its_new_risk_needs() {
+    let r = Repo::new();
+    assert_eq!(r.gdd(&["backlog", "add", "gates-core", "--what", "The core's own gate, for the first data it stores", "--color", "yellow"]).code, 0);
+    r.write("gdd/briefs/y1.md", "---\ncontract: gdd/1\nid: y1\nversion: 1\ncolor: yellow\nscenarios: [y1-1]\n---\n\n# Ok\n");
+    r.write("features/y1.feature", &ok_feature("y1"));
+    assert_eq!(r.gdd(&["seal", "y1", "gdd/briefs/y1.md", "features/y1.feature"]).code, 0);
+    let wrong = r.gdd(&["brief", "y1", "gdd/briefs/y1.md", "features/y1.feature", "--paths", "src/core/app.txt", "--waits-for", "g1"]);
+    assert_ne!(wrong.code, 0, "{}", wrong.out);
+    assert!(wrong.has("--waits-for names a setup item"), "{}", wrong.out);
+    let b = r.gdd(&["brief", "y1", "gdd/briefs/y1.md", "features/y1.feature", "--paths", "src/core/app.txt", "--waits-for", "gates-core"]);
+    assert_eq!(b.code, 0, "{}", b.out);
+    assert!(b.has("waits for gates-core before its gates"), "{}", b.out);
+    approved(&r, "y1");
+    r.commit_on("gdd-seal/y1", None, &[("tests/y1.sh", "true\n")], "Seal");
+    assert_eq!(r.report("y1", "checks", &sealed_report(&["tests"]), &[]).code, 0);
+    let start = r.git(&["rev-parse", "gdd-seal/y1"]);
+    r.commit_on("work/y1", Some(&start), &[("src/core/app.txt", "it says ok\n")], "Round 1");
+    assert_eq!(r.report("y1", "build", &build_report(""), &[]).code, 0);
+    for _ in 0..2 {
+        let g = r.gdd(&["gates", "y1"]);
+        assert_eq!(g.facts["refused"], "waits-for", "{}", g.out);
+    }
+    let n = r.gdd(&["next", "y1"]);
+    assert_eq!(n.facts["state"]["next"]["command"], "gdd next gates-core", "{}", n.out);
+    assert!(!n.has("gdd ask y1"), "{}", n.out);
+    // A later version can take the wait back, and then nothing holds its gates.
+    let r2 = Repo::new();
+    assert_eq!(r2.gdd(&["backlog", "add", "gates-core", "--what", "The core's own gate", "--color", "yellow"]).code, 0);
+    yellow_brief(&r2, "y2", "src/core/app.txt");
+    new_version(&r2, "y2", &["gdd/briefs/y2.md", "features/y2.feature"], &["--waits-for", "gates-core"]);
+    assert_eq!(r2.log_lines("y2").iter().rev().find(|v| v["step"] == "brief").unwrap()["waits_for"], "gates-core");
+    let brief = r2.read("gdd/briefs/y2.md").replace("version: 2", "version: 3");
+    r2.write("gdd/briefs/y2.md", &brief);
+    assert_eq!(r2.gdd(&["seal", "y2", "gdd/briefs/y2.md"]).code, 0);
+    let back = r2.gdd(&["brief", "y2", "gdd/briefs/y2.md", "features/y2.feature", "--paths", "src/core/app.txt", "--waits-for", "none"]);
+    assert_eq!(back.code, 0, "{}", back.out);
+    assert!(r2.log_lines("y2").iter().rev().find(|v| v["step"] == "brief").unwrap()["waits_for"].is_null());
+    // The gate holds: the change's gates run with it.
+    let done = r.read("gdd/backlog.md").replace("| gates-core | The core's own gate, for the first data it stores | yellow | | | todo |", "| gates-core | The core's own gate, for the first data it stores | yellow | | | done |");
+    assert!(done.contains("stores | yellow | | | done |"), "{done}");
+    r.write("gdd/backlog.md", &done);
+    let g = r.gdd(&["gates", "y1"]);
+    assert_eq!(g.facts["next"], "review", "{}", g.out);
+}

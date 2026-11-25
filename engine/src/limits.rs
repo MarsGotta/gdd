@@ -206,6 +206,8 @@ impl Tally {
         }
         match st {
             "review" => self.fixing_checks = v["fix_role"] == "checks",
+            // A check that judges the change's tests sent them back from the gates (decision 142).
+            "gates" if v["fix_role"] == "checks" => self.fixing_checks = true,
             "checks" if result(v) == "stopped" || v.get("stop").is_some() => {
                 self.fixing_checks = false
             }

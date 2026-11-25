@@ -287,13 +287,15 @@ fn a_change_is_told_what_its_zone_still_has_to_set_up() {
     r.write("gdd/backlog.md", &format!("{BACKLOG}{done}"));
     let c = ahead("src/core/app.txt");
     assert_eq!(c.facts["setup_ahead"], serde_json::json!([]), "{}", c.out);
-    // And before the standing checks hold, no change starts: nothing to go ahead of, as when
-    // Prepare tries the zones.
+    // Before the standing checks hold, a try with no change, as when Prepare tries the zones, has
+    // nothing to go ahead of; a change going alongside them hears it (decision 140).
     let before = BACKLOG.replace("| red | 0 | | done |", "| red | 0 | | todo |");
     assert_ne!(before, BACKLOG);
     r.write("gdd/backlog.md", &format!("{before}{more}"));
     let c = ahead("src/core/app.txt");
-    assert_eq!(c.facts["setup_ahead"], serde_json::json!([]), "{}", c.out);
+    assert!(c.facts["setup_ahead"].is_null(), "{}", c.out);
+    let c = r.gdd(&["color", "y1", "--paths", "src/core/app.txt"]);
+    assert_eq!(c.facts["setup_ahead"], serde_json::json!(["gates-core"]), "{}", c.out);
 }
 
 #[test]
@@ -458,6 +460,18 @@ fn a_sealed_file_cannot_be_a_change_path() {
             .code,
         0
     );
+}
+
+#[test]
+fn nothing_kept_in_the_layers_folder_is_sealed() {
+    let r = Repo::new();
+    r.write(".gdd/drafts/page.html", "<p>a throwaway draft</p>\n");
+    let md = brief_md(&r, "title");
+    let s = r.gdd(&["seal", "title", &md, "./.gdd/drafts/page.html"]);
+    assert_eq!(s.facts["refused"], "seal", "{}", s.out);
+    assert!(s.has("never part of a change"), "{}", s.out);
+    assert!(r.git(&["branch", "--list", "gdd-seal/title"]).is_empty());
+    assert_eq!(r.gdd(&["seal", "title", &md]).code, 0);
 }
 
 #[test]

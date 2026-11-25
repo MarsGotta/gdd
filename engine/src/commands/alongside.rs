@@ -10,7 +10,7 @@ pub(super) struct Open {
 }
 
 /// Whether a change is open: briefed, and neither shipped nor stopped.
-fn is_open(p: &state::Progress) -> bool {
+pub(super) fn is_open(p: &state::Progress) -> bool {
     p.briefs > 0 && p.shipped.is_none() && p.brief_stopped.is_none()
 }
 
@@ -131,6 +131,18 @@ pub(super) fn say(ctx: &Ctx, bp: &Blueprint, id: Option<&str>, paths: &[String],
         return;
     }
     let open = open_changes(ctx, id);
+    // While the standing checks are set up, one change goes alongside them, whatever `parallel`
+    // allows (decision 140).
+    if let Some(first) = open.first()
+        && super::brief::standing_pending(ctx).unwrap_or(false)
+    {
+        out.fact("parallel", json!({"allows": most, "open": open.len(), "room": 0}));
+        out.say(format!(
+            "no room for another change while the standing checks are set up: one goes alongside them, and {} is that one",
+            first.id
+        ));
+        return;
+    }
     let room = most.saturating_sub(open.len());
     out.fact("parallel", json!({"allows": most, "open": open.len(), "room": room}));
     if paths.is_empty() {
@@ -159,5 +171,42 @@ pub(super) fn say(ctx: &Ctx, bp: &Blueprint, id: Option<&str>, paths: &[String],
             "no room alongside: {} open, and the blueprint's parallel allows {most}",
             open.len()
         ));
+    }
+}
+
+/// How many days after it shipped a change still counts as recent, for a change that touches what
+/// it planned and may fix it (decision 143).
+const RECENT_DAYS: i64 = 30;
+
+/// The changes shipped in the last days that planned a path these paths collide with, each with
+/// how many days ago: a change that touches them may fix what one of them shipped. It is said,
+/// never decided: whether it fixes something is the orchestrator's to tell from the request.
+pub(super) fn say_may_fix(ctx: &Ctx, id: Option<&str>, paths: &[String], out: &mut Out) {
+    let project = Project::open(&ctx.root);
+    if id.is_some_and(|i| state::Progress::of(i, &project.read_log(i)).fixes.is_some()) {
+        return;
+    }
+    let mine = cleaned(paths);
+    let now = time::now();
+    let mut recent = vec![];
+    for other in project.log_ids() {
+        if log_kind(&other) != LogKind::Change || Some(other.as_str()) == id {
+            continue;
+        }
+        let p = state::Progress::of(&other, &project.read_log(&other));
+        let (Some(_), Some(at)) = (&p.shipped, p.shipped_at) else {
+            continue;
+        };
+        let days = (now - at) / crate::closing::DAY;
+        let theirs = cleaned(&p.paths);
+        if days <= RECENT_DAYS && mine.iter().any(|m| theirs.iter().any(|t| collide(m, t))) {
+            out.say(format!(
+                "it touches what {other} shipped {days} days ago: if it fixes something {other} shipped, brief it with --fixes {other}"
+            ));
+            recent.push(other);
+        }
+    }
+    if !recent.is_empty() {
+        out.fact("may_fix", json!(recent));
     }
 }

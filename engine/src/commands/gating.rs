@@ -143,6 +143,10 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
         // The commit it would judge goes into what the state is asked: gates that failed don't
         // run again on another commit before the round that moved the branch is reported.
         allowed(&l, id, "gates", l.state.git.head.as_deref())?;
+        if let Some(hold) = super::brief::standing_hold(ctx, &l, id)? {
+            let code = if hold.blocked.as_deref() == Some("waits-for") { "waits-for" } else { "standing-checks" };
+            return Err(Fail::refuse(code, hold.say, hold.command));
+        }
         let head = l.state.git.head.clone().ok_or(Fail::missing(
             format!("the branch of {id}"),
             format!("no branch for {id} (work/{id}, gdd-build/{id} or build/{id}): pass --branch or --head"),
@@ -173,6 +177,19 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
             ));
         }
         let (plan, commands) = plan_for(ctx, &l, id, &start, &head)?;
+        // A check that only reports runs and is written, and its failure stops nothing, except on
+        // red: the blueprint's `state: reports`, or a quarantine by the person's rule (decision 145).
+        let red = l.state.progress.color.as_deref() == Some("red");
+        let quarantined = super::gate_states::quarantined(&l.project, &l.bp, id);
+        let reporting: Vec<String> = if red {
+            vec![]
+        } else {
+            l.bp.checks()
+                .into_iter()
+                .filter(|c| c.reports() || quarantined.contains(&c.id))
+                .map(|c| c.id)
+                .collect()
+        };
         let outputs = runs_dir(&ctx.root, id, "gates", out)?;
         let (dir, place, _temp) = place_for(ctx, at, &head)?;
         // A fresh copy has only what git holds: the blueprint's `install` gives it what the checks
@@ -184,7 +201,7 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
                 Some(cmd) => Some(install_in(&dir, &outputs, cmd, id, &head, out)?),
                 None => None,
             };
-            let (ran, skipped) = run_checks(&dir, &outputs, &plan, &commands, out);
+            let (ran, skipped) = run_checks(&dir, &outputs, &plan, &commands, &reporting, out);
             Ok((installed, ran, skipped))
         })();
         if matches!(place, Place::Worktree) {
@@ -212,17 +229,50 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
                 ),
             ));
         }
-        let passed = ran.iter().all(|r| r.passed);
+        // A check that passed and failed on this same commit is flaky: with the person's rule of
+        // quarantine it reports from its next run on, for a while; this run counts as it came out.
+        let flaky = super::gate_states::flaky_now(&l.entries, &head, &ran);
+        let reporting = |check: &str| reporting.iter().any(|r| r == check);
+        let failed: Vec<&str> = ran
+            .iter()
+            .filter(|r| !r.passed && !reporting(&r.check))
+            .map(|r| r.check.as_str())
+            .collect();
+        let passed = failed.is_empty();
+        let gates: Vec<Value> = ran
+            .iter()
+            .map(|r| {
+                let mut g = r.to_json();
+                if reporting(&r.check) {
+                    g["reports"] = json!(true);
+                    // What it rejected is written, and counted by nobody as a failure.
+                    if !r.passed {
+                        g["result"] = json!("reported");
+                    }
+                }
+                g
+            })
+            .collect();
         let mut m = obj(vec![
             ("step", json!("gates")),
             ("start", json!(start)),
             ("where", json!(place)),
             ("head", json!(head)),
-            (
-                "gates",
-                json!(ran.iter().map(|r| r.to_json()).collect::<Vec<_>>()),
-            ),
+            ("gates", json!(gates)),
         ]);
+        // A failure of a check that judges the change's own tests goes back to whoever wrote them
+        // (decision 142).
+        let to_checks = failed
+            .iter()
+            .filter(|c| l.bp.check(c).is_some_and(|k| k.fails_to_checks()))
+            .count();
+        if to_checks > 0 {
+            let role = if to_checks == failed.len() { "checks" } else { "checks-then-build" };
+            m.insert("fix_role".into(), json!(role));
+            out.say(format!(
+                "a check that judges the change's own tests failed: it goes back to whoever wrote them ({role})"
+            ));
+        }
         out.fact("skipped", json!(&skipped));
         if !skipped.is_empty() {
             m.insert("skipped".into(), json!(skipped));
@@ -230,8 +280,31 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
         if let Some(i) = installed {
             m.insert("install".into(), i);
         }
+        if !flaky.is_empty() {
+            m.insert("flaky".into(), json!(flaky));
+        }
         let ev = new_event(id, "step", &time::now_string(), m);
         let line = write(&l, id, &ev)?;
+        for check in &flaky {
+            let can = l.bp.check(check).is_some_and(|c| c.quarantinable());
+            let rule = match l.bp.quarantine() {
+                _ if !can => "it keeps blocking: the seal and the tests of a change's own scenarios never go into quarantine".to_string(),
+                Some(n) if red => format!("on red it keeps blocking; on green and yellow it reports from its next run on, for the next {n} changes, as the blueprint's quarantine says"),
+                Some(n) => format!("it reports instead of blocking from its next run on, for the next {n} changes, as the blueprint's quarantine says"),
+                None => "it keeps blocking: the blueprint has no quarantine".into(),
+            };
+            out.say(format!(
+                "{check} passed and failed on the same commit, {}: {rule}",
+                git::short(&head)
+            ));
+            super::thresholds::add(
+                &l.project.root,
+                &l.bp,
+                &format!("harden-flaky-{check}"),
+                &format!("{check} passed and failed on the same commit {}; {rule}. Find why its answer changes, or propose retiring it", git::short(&head)),
+                out,
+            );
+        }
         out.say(format!(
             "judged {} from {} in {place}; wrote the gates step, line {line}; outputs in {}",
             git::short(&head),
@@ -461,8 +534,11 @@ fn run_checks(
     outputs: &Path,
     plan: &[gates::Planned],
     commands: &std::collections::BTreeMap<String, String>,
+    reporting: &[String],
     out: &mut Out,
 ) -> (Vec<gates::Ran>, Vec<Value>) {
+    // A check that only reports never stops the tiers after it (decision 145).
+    let blocks = |r: &gates::Ran| !r.passed && !reporting.contains(&r.check);
     let mut ran: Vec<gates::Ran> = vec![];
     let mut stop_rest = false;
     for tier in ["seal", "each round", "before review"] {
@@ -476,7 +552,7 @@ fn run_checks(
                 p.check != "seal" && p.tier == tier
             }
         }) {
-            if tier == "before review" && ran.iter().any(|r| !r.passed) {
+            if tier == "before review" && ran.iter().any(blocks) {
                 break;
             }
             let command = commands.get(&p.check).cloned().unwrap_or_default();
@@ -510,23 +586,24 @@ fn run_checks(
                 break;
             }
         }
-        if tier == "each round" && ran.iter().any(|r| !r.passed) {
+        if tier == "each round" && ran.iter().any(blocks) {
             break;
         }
     }
     // A failed earlier tier cannot hide a path filter in a later one.
-    let skipped = show_skipped(plan, &ran, out);
+    let blocking: Vec<gates::Ran> = ran.iter().filter(|r| blocks(r)).cloned().collect();
+    let skipped = show_skipped(plan, &ran, &blocking, out);
     (ran, skipped)
 }
 
 pub(super) fn show_skipped(
     plan: &[gates::Planned],
     ran: &[gates::Ran],
+    blocking: &[gates::Ran],
     out: &mut Out,
 ) -> Vec<Value> {
-    let blocked = ran
-        .iter()
-        .find(|r| !r.passed)
+    let blocked = blocking
+        .first()
         .map(|r| format!("{} failed first", r.check));
     let mut skipped = vec![];
     for p in plan {

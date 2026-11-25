@@ -452,9 +452,23 @@ pub fn standing_checks(items: &[Item]) -> Option<&str> {
 
 /// The next item to build: the first `todo`, by phase and then by order.
 pub fn next(items: &[Item]) -> Option<&Item> {
-    let mut todo: Vec<&Item> = items.iter().filter(|i| i.state == "todo").collect();
-    todo.sort_by_key(|i| (i.phase.parse::<i64>().unwrap_or(i64::MAX), i.line));
-    todo.first().copied()
+    first_todo(items.iter())
+}
+
+/// The next item of the product, leaving out the setup items: the one that can go alongside the
+/// standing checks while they are set up.
+pub fn next_of_product(items: &[Item]) -> Option<&Item> {
+    first_todo(
+        items
+            .iter()
+            .filter(|i| crate::state::log_kind(&i.id) == crate::state::LogKind::Change),
+    )
+}
+
+fn first_todo<'a>(items: impl Iterator<Item = &'a Item>) -> Option<&'a Item> {
+    items
+        .filter(|i| i.state == "todo")
+        .min_by_key(|i| (i.phase.parse::<i64>().unwrap_or(i64::MAX), i.line))
 }
 
 fn render(row: &[String]) -> String {

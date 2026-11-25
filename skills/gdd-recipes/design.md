@@ -2,6 +2,8 @@
 
 Open this when the product has an interface and the person gave a design or a prototype it has to follow: before you propose the gates, and before you set up what takes its screens. Export each screen and state of the design as an image into `gdd/context/`, with its source and date, so that every reviewer can open it: a reviewer may have no MCP tools. An MCP server of the design comes on top, where the reviewer's environment has it. The blueprint's `context` says which zones and gates get them. No tool is named here: look them up for the stack, as `../gdd-prepare/references/research.md` says.
 
+A throwaway draft, before the blueprint, is a mock of the screens that matter most, from the design's own components where there are some, made to show and not to keep.
+
 ## What usually goes wrong
 
 - **It works and looks like something else.** Every scenario passes and no screen matches its design: the layout, the components, the spacing, the type, the colors. A test of behavior can't see it.

@@ -999,3 +999,103 @@ fn the_question_about_a_change_in_use_is_the_only_one_in_its_log() {
     assert_eq!(next.code, 0, "{}", next.out);
     assert_eq!(next.facts["also_waiting"], serde_json::json!([]));
 }
+
+/// A fix of what a change shipped says which one (decision 143): `gdd color` names a recent change
+/// its paths share, the fix closes once a hardening record names what it fixed, and the metrics
+/// count the escape.
+#[test]
+fn a_fix_says_what_it_fixes_and_closes_once_hardening_looked_at_it() {
+    let r = repo_with_days();
+    green_shipped(&r, "g1");
+    // An older record about g1 looked at something else: it doesn't close a later fix.
+    let old = r.gdd(&["step", "blueprint", "harden", "--change", "g1", "--crack", "an older crack", "--proposal", "nothing"]);
+    assert_eq!(old.code, 0, "{}", old.out);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let c = r.gdd(&["color", "g2", "--paths", "src/ui/page.txt"]);
+    assert_eq!(c.facts["may_fix"], serde_json::json!(["g1"]), "{}", c.out);
+    assert!(c.has("brief it with --fixes g1"), "{}", c.out);
+    let wrong = r.gdd(&["brief", "g2", "--paths", "src/ui/page.txt", "--fixes", "g9"]);
+    assert_ne!(wrong.code, 0, "{}", wrong.out);
+    assert!(wrong.has("--fixes names a change that shipped"), "{}", wrong.out);
+    assert_eq!(r.gdd(&["brief", "g2", "--paths", "src/ui/page.txt", "--fixes", "g1"]).code, 0);
+    assert_eq!(r.log_lines("g2")[0]["fixes"], "g1");
+    r.commit_on("work/g2", Some("main"), &[("src/ui/page.txt", "the page, fixed\n")], "Fix it");
+    assert_eq!(r.report("g2", "build", &report_block("gdd-build", "done"), &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "g2"]).code, 0);
+    assert_eq!(r.report("g2", "review", &r.review_pass("g2", "green", ""), &[]).code, 0);
+    r.git(&["merge", "-q", "--no-ff", "-m", "Merge the fix", "work/g2"]);
+    assert_eq!(r.gdd(&["ship", "g2", "--done", "main"]).code, 0);
+    // Its days go by, and it still waits for hardening to look at what let it through.
+    let later = in_days(8);
+    let n = r.gdd_env(&["next", "g2"], &[("GDD_NOW", &later)]);
+    assert_eq!(n.facts["state"]["close"], "waiting", "{}", n.out);
+    assert!(n.has("it fixed what g1 shipped"), "{}", n.out);
+    assert!(n.facts["state"]["next"]["command"].as_str().unwrap().contains("gdd step blueprint harden --change g1"), "{}", n.out);
+    let m = r.gdd(&["metrics", "--all", "--summary"]);
+    assert!(m.has("fixes of what shipped, by the color of what they fixed: green 1; 1 still without a hardening record"), "{}", m.out);
+    let h = r.gdd(&["step", "blueprint", "harden", "--change", "g1", "--crack", "no check read the page", "--expected-check", "none", "--caught-by", "person", "--proposal", "nothing: a one-off"]);
+    assert_eq!(h.code, 0, "{}", h.out);
+    let closed = r.gdd_env(&["next", "g2"], &[("GDD_NOW", &later)]);
+    assert_eq!(closed.facts["state"]["close"], "closed", "{}", closed.out);
+    assert!(r.gdd(&["metrics", "--all", "--summary"]).has("0 still without a hardening record"));
+}
+
+/// A figure of the blueprint's `harden`, once crossed at a ship, opens a proposal of hardening in
+/// the backlog with its numbers, once (decision 144).
+#[test]
+fn a_figure_of_harden_crossed_opens_a_proposal_in_the_backlog() {
+    let r = Repo::with(&BLUEPRINT.replace("context: []", "harden:\n  silent_runs: 2\ncontext: []"));
+    green_shipped(&r, "g1");
+    assert!(!r.read("gdd/backlog.md").contains("harden-silent-tests"));
+    assert_eq!(r.gdd(&["brief", "g2", "--paths", "src/ui/page.txt"]).code, 0);
+    r.commit_on("work/g2", Some("main"), &[("src/ui/page.txt", "a page again\n")], "Again");
+    assert_eq!(r.report("g2", "build", &report_block("gdd-build", "done"), &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "g2"]).code, 0);
+    assert_eq!(r.report("g2", "review", &r.review_pass("g2", "green", ""), &[]).code, 0);
+    r.git(&["merge", "-q", "--no-ff", "-m", "Merge it", "work/g2"]);
+    let s = r.gdd(&["ship", "g2", "--done", "main"]);
+    assert_eq!(s.code, 0, "{}", s.out);
+    assert!(s.has("a figure of the blueprint's harden crossed: added harden-silent-tests"), "{}", s.out);
+    let backlog = r.read("gdd/backlog.md");
+    assert!(backlog.contains("| harden-silent-tests | tests ran 2 times in a row and rejected nothing"), "{backlog}");
+    assert_eq!(backlog.matches("harden-silent-tests").count(), 1);
+}
+
+/// A zone touched by enough changes since it was last explored gets a proposal to explore it, and
+/// an exploration is recorded in the blueprint's log with its charter and what it found
+/// (decision 147).
+#[test]
+fn a_zone_many_changes_touched_gets_a_proposal_to_explore_it() {
+    let r = Repo::with(&BLUEPRINT.replace("context: []", "harden:\n  explore_after: 1\ncontext: []"));
+    green_shipped(&r, "g1");
+    let backlog = r.read("gdd/backlog.md");
+    assert!(backlog.contains("| explore-ui | 1 change touched ui since it was last explored"), "{backlog}");
+    let wrong = r.gdd(&["step", "blueprint", "explore", "--zone", "nowhere", "--charter", "x", "--found", "0"]);
+    assert_ne!(wrong.code, 0, "{}", wrong.out);
+    let e = r.gdd(&["step", "blueprint", "explore", "--zone", "ui", "--charter", "Explore the pages with a slow network to discover what a person sees while they load", "--found", "2"]);
+    assert_eq!(e.code, 0, "{}", e.out);
+    let line = r.log_lines("blueprint").last().cloned().unwrap();
+    assert_eq!((line["step"].clone(), line["zone"].clone(), line["found"].clone()), (serde_json::json!("explore"), serde_json::json!("ui"), serde_json::json!(2)));
+    assert_eq!(r.gdd(&["verify", "blueprint"]).code, 0);
+}
+
+/// Once an exploration is recorded and its item done, the figure counts again from there and a
+/// later crossing gets an item of its own (decision 147).
+#[test]
+fn an_exploration_done_leaves_room_for_the_next_one() {
+    let r = Repo::with(&BLUEPRINT.replace("context: []", "harden:\n  explore_after: 1\ncontext: []"));
+    green_shipped(&r, "g1");
+    assert!(r.read("gdd/backlog.md").contains("| explore-ui |"));
+    let e = r.gdd(&["step", "blueprint", "explore", "--zone", "ui", "--charter", "Explore the pages to discover what loads slowly", "--found", "0"]);
+    assert_eq!(e.code, 0, "{}", e.out);
+    assert_eq!(r.gdd(&["backlog", "done", "explore-ui"]).code, 0);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    assert_eq!(r.gdd(&["brief", "g2", "--paths", "src/ui/page.txt"]).code, 0);
+    r.commit_on("work/g2", Some("main"), &[("src/ui/page.txt", "a page again\n")], "Again");
+    assert_eq!(r.report("g2", "build", &report_block("gdd-build", "done"), &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "g2"]).code, 0);
+    assert_eq!(r.report("g2", "review", &r.review_pass("g2", "green", ""), &[]).code, 0);
+    r.git(&["merge", "-q", "--no-ff", "-m", "Merge it", "work/g2"]);
+    let s = r.gdd(&["ship", "g2", "--done", "main"]);
+    assert!(s.has("added explore-ui-2"), "{}", s.out);
+}

@@ -1,4 +1,4 @@
-//! The orchestrator's own steps in the blueprint's log: prepare, harden and exam.
+//! The orchestrator's own steps in the blueprint's log: prepare, harden, exam and explore.
 
 use super::*;
 
@@ -64,6 +64,15 @@ pub struct StepArgs {
     /// exam: a question it missed, by its id; repeat it for each.
     #[arg(long)]
     pub missed: Vec<String>,
+    /// explore: the zone it explored.
+    #[arg(long)]
+    pub zone: Option<String>,
+    /// explore: its charter, what it set out to discover and with what.
+    #[arg(long)]
+    pub charter: Option<String>,
+    /// explore: how many findings it brought back.
+    #[arg(long)]
+    pub found: Option<i64>,
 }
 
 fn json_list(text: &Option<String>, what: &str, keys: &[&str]) -> R<Value> {
@@ -153,7 +162,25 @@ fn exam_fields(a: &StepArgs, ev: &mut Value) -> R<()> {
     Ok(())
 }
 
-/// The orchestrator's own steps, `prepare`, `harden` and `exam`, in the shapes of the contract,
+/// An exploration with a charter, of one zone of the product in use: what it found is findings,
+/// never a pass or a fail (decision 147).
+fn explore_fields(bp: &Blueprint, a: &StepArgs, ev: &mut Value) -> R<()> {
+    let (Some(zone), Some(charter), Some(found)) = (&a.zone, &a.charter, a.found) else {
+        return Err(Fail::usage("an explore step takes --zone, --charter and --found"));
+    };
+    if !bp.zones().iter().any(|z| &z.id == zone) {
+        return Err(Fail::usage(format!("--zone names a zone of the blueprint, and {zone} is none")));
+    }
+    if found < 0 {
+        return Err(Fail::usage("--found is how many findings it brought back, from 0 on"));
+    }
+    ev["zone"] = json!(zone);
+    ev["charter"] = json!(charter);
+    ev["found"] = json!(found);
+    Ok(())
+}
+
+/// The orchestrator's own steps, `prepare`, `harden`, `exam` and `explore`, in the shapes of the contract,
 /// so nobody composes a whole report by hand. They go to the blueprint's log.
 pub fn step_cmd(ctx: &Ctx, id: &str, st: &str, a: &StepArgs) -> Out {
     run_change(ctx, id, "step", |out| {
@@ -182,11 +209,13 @@ pub fn step_cmd(ctx: &Ctx, id: &str, st: &str, a: &StepArgs) -> Out {
             }
             "harden" => harden_fields(a, &mut ev)?,
             "exam" => exam_fields(a, &mut ev)?,
-            _ => return Err(Fail::usage("the step is prepare, harden or exam")),
+            "explore" => explore_fields(&l.bp, a, &mut ev)?,
+            _ => return Err(Fail::usage("the step is prepare, harden, exam or explore")),
         }
         if st != "exam" {
+            let skill = if st == "explore" { "gdd-review".to_string() } else { format!("gdd-{st}") };
             ev["report"] = report_obj(
-                &format!("gdd-{st}"),
+                &skill,
                 a.skill_version
                     .as_deref()
                     .or(Some(env!("CARGO_PKG_VERSION"))),

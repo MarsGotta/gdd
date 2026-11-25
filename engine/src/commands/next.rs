@@ -30,10 +30,28 @@ fn stop_repeating(state: &mut State, entries: &[Entry], repeated: Option<(Value,
 
 pub(super) fn load_next(ctx: &Ctx, id: &str) -> R<Loaded> {
     let mut l = load(ctx, id)?;
+    // While the standing checks are set up, one change of the product goes alongside them.
     if l.state.next.step == "brief"
-        && let Some(wait) = brief::pending_standing_checks(ctx)?
+        && log_kind(id) == LogKind::Change
+        && brief::standing_pending(ctx)?
+        && !super::alongside::is_open(&l.state.progress)
+        && let Some(other) = super::alongside::open_changes(ctx, Some(id)).first()
     {
-        l.state.next = wait;
+        l.state.next = state::Next {
+            step: "wait".into(),
+            blocked: Some("standing-checks".into()),
+            say: format!(
+                "while the standing checks are set up, one change of the product goes alongside them, and {} is that one: {id} starts once they hold",
+                other.id
+            ),
+            command: "gdd next standing-checks".into(),
+        };
+        return Ok(l);
+    }
+    if l.state.next.step == "gates"
+        && let Some(hold) = brief::standing_hold(ctx, &l, id)?
+    {
+        l.state.next = hold;
         return Ok(l);
     }
     if l.state.next.step == "brief"
@@ -174,18 +192,37 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
     let standing = backlog::standing_checks(&items);
     out.say(match standing {
         Some("done") => "the standing checks are set up".to_string(),
-        Some(s) => format!("the standing checks are {s}: they come before any change"),
+        Some(s) => format!(
+            "the standing checks are {s}: they hold before any change gets through its gates, and one change of the product can be briefed and built alongside them"
+        ),
         None => "the backlog has no standing-checks item".into(),
     });
     out.fact("standing_checks", json!(standing));
+    let provisional = brief::provisional_colors(ctx, &bp);
+    if !provisional.is_empty() {
+        out.say(format!(
+            "what a change goes through is still the template's proposal for {}: the person decides each when its first change comes",
+            provisional.join(" and ")
+        ));
+    }
+    out.fact("provisional", json!(provisional));
     show_work_under_way(ctx, &project, &bp, out);
     super::alongside::say(ctx, &bp, None, &[], out);
+    // While they are set up, one change of the product goes alongside them (decision 140).
+    let alongside = standing.is_some_and(|s| s != "done")
+        && super::alongside::open_changes(ctx, None).is_empty();
+    let item = |i: &backlog::Item| format!("{} ({}, {}): {}", i.id, i.color, i.state, i.what);
     match backlog::next(&items) {
         Some(i) if standing == Some("done") || i.id == "standing-checks" => {
-            out.say(format!(
-                "next in the backlog: {} ({}, {}): {}",
-                i.id, i.color, i.state, i.what
-            ));
+            out.say(format!("next in the backlog: {}", item(i)));
+            out.fact("backlog_next", json!(i.id));
+            if let Some(p) = backlog::next_of_product(&items).filter(|_| alongside) {
+                out.say(format!("alongside them, a change of the product can start: {}", item(p)));
+                out.fact("backlog_alongside", json!(p.id));
+            }
+        }
+        Some(i) if alongside => {
+            out.say(format!("next in the backlog, alongside the standing checks: {}", item(i)));
             out.fact("backlog_next", json!(i.id));
         }
         Some(i) => {
@@ -248,6 +285,8 @@ fn show_work_under_way(ctx: &Ctx, project: &Project, bp: &Blueprint, out: &mut O
     let now = time::now();
     let mut open = vec![];
     let mut under_way = vec![];
+    // Only changes not shipped are under way, and no hardening record speaks of them.
+    let named = std::collections::BTreeMap::new();
 
     // A setup or first brief can be refused twice before it writes its first event.
     let ids: std::collections::BTreeSet<_> = project
@@ -276,7 +315,7 @@ fn show_work_under_way(ctx: &Ctx, project: &Project, bp: &Blueprint, out: &mut O
                 bp,
                 &e,
                 GitView::for_log(&ctx.root, &lid, None, None, &e),
-                None,
+                &named,
                 None,
                 now,
             );
@@ -322,11 +361,16 @@ pub(super) fn say_in_use(project: &Project, bp: &Blueprint, now: i64, out: &mut 
                 .as_ref()
                 .and_then(|r| crate::closing::undone(r, &entries))
         });
-        if let Some(crate::closing::Standing::Waiting(why)) =
-            crate::closing::standing(&p, bp, named.get(&lid).copied(), undone.as_ref(), now)
-        {
-            in_use.push((p.shipped_at.unwrap_or(now), lid, why, p));
-        }
+        let fix = p.fix_hardened(&named);
+        let mine = named.get(&lid).map(Vec::as_slice).unwrap_or(&[]);
+        let why = match crate::closing::standing(&p, bp, mine, fix, undone.as_ref(), now) {
+            Some(crate::closing::Standing::Waiting(why)) => why,
+            Some(crate::closing::Standing::Unhardened(fixed)) => format!(
+                "it fixed what {fixed} shipped, and waits for a hardening record that names {fixed} (gdd-harden)"
+            ),
+            _ => continue,
+        };
+        in_use.push((p.shipped_at.unwrap_or(now), lid, why, p));
     }
     in_use.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
     for (since, lid, why, p) in &in_use {

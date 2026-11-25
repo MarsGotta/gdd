@@ -2,6 +2,8 @@
 
 Open this when the project builds for the web. It has four parts: what usually goes wrong, what to start with, what to add when something slips through, and the traps of setting it up. No tool is named here: look them up for the stack, from each tool's own page, as `../gdd-prepare/references/research.md` says.
 
+A throwaway draft, before the blueprint, is a static page that opens in a browser, with made-up data and no server.
+
 ## What usually goes wrong
 
 Candidates for the rules of the product in the constitution, for the person to correct in their own words. Take only those the product has.
@@ -19,6 +21,10 @@ The minimum of `../gdd-prepare/references/gates.md`, and:
 2. one test that drives a browser through what the change touches, once before the review and only when the change touches what a person sees: the checks before the review take under ten minutes in all;
 3. nothing else until something slips through.
 
+## First times that usually need a gate
+
+On the web, besides software's: the first form that sends something, the first page behind a sign-in, the first page that takes a payment, and the first cookie, tracker or third-party script on a page. A change that brings one when no gate covers it waits for that gate, as `../gdd-brief/references/new-risk.md` says.
+
 ## What to add when something slips through
 
 - A check of accessibility on the pages a change touches, when a page shipped that someone couldn't use.
@@ -29,7 +35,7 @@ The minimum of `../gdd-prepare/references/gates.md`, and:
 ## The traps of setting it up
 
 - **Each runner, its own files.** Unit tests and browser tests in separate folders, and each runner given a pattern that takes its folder and leaves out the other's.
-- **Mutation runs the unit tests.** A mutation tool drives a unit runner and doesn't find browser tests. When hardening adds it, it runs the unit tests of the files the change touches.
+- **Mutation runs the unit tests.** A mutation tool drives a unit runner and doesn't find browser tests. Where the blueprint has it, it runs the unit tests of the files the change touches.
 - **A port and a build folder for each copy.** Builders and reviewers work in copies side by side, so each takes its port and its build folder from an environment variable, never a fixed one. The constitution's `Use it` command takes them the same way.
 - **Nothing reloads during a test.** A development server reloads when a file changes, and a test that runs while one is being written fails at random. Browser tests run against the built product, or a server with reloading off.
 - **The test makes what it needs.** A temporary folder, a database, a server: its setup creates them, outside the repository, and removes them.

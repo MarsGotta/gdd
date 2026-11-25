@@ -641,6 +641,7 @@ fn write_ship(
         out.fact("decisions", json!(decisions));
     }
     super::next::say_in_use(&l.project, &l.bp, time::now(), out);
+    super::thresholds::open(&l.project.root, &l.bp, out);
     Ok(line)
 }
 

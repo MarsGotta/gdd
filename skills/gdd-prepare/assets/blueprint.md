@@ -55,11 +55,13 @@ checks:
   #   command: <the Use it command from the constitution, then what shows it works, and what stops it if it keeps running>
   #   breaks: <the bad case to plant to see it fail>
   #   runs: before review  # and add it to the checks of every color
-  # - id: mutation  # not at the start: hardening adds it, or a threshold of coverage, when the tests proved weak
+  # - id: mutation  # planted faults: in software with the first yellow change that has cases, elsewhere when the tests proved weak
   #   type: machine
   #   command: <mutation command, on what `git diff <start> HEAD` gives and nothing else>
   #   passes: <the tool's own default, looked up on its page: never one from memory, never the highest>
   #   runs: before review
+  #   fails_to: checks  # a survivor goes back to whoever wrote the change's checks, never to the builder
+  #   state: reports  # how a check new to a project can start: it runs and is written, and stops nothing but on red
   - id: review
     type: reviewer
   # - id: hidden          # only from platform up, when a color asks for it
@@ -103,6 +105,13 @@ zones:
     # gates: gdd/gates/<zone>.feature   # include for the red zone rules approved with the blueprint, or whenever the zone has its own gates
 # hidden: <where the hidden examples live, when a color asks for them>
 parallel: 2  # changes open at once; one that plans to touch a file an open change plans to touch waits for it
+provisional: [green, yellow]  # what these colors ask is a proposal until the person decides it, when the first change of each comes
+harden:  # figures that open a proposal of hardening in the backlog once a change ships and one is crossed; what it becomes is the person's
+  sent_back: 3  # changes of one color whose tests a review or a check of planted faults sent back to whoever wrote them
+  approved_unchanged: 10  # the latest briefs of one color approved in a row with no correction
+  silent_runs: 50  # the latest runs in a row of a machine check that rejected nothing
+  explore_after: 10  # changes that touched a zone and shipped since it was last explored
+quarantine: 5  # changes a check that passed and failed on the same commit reports instead of blocking; never on red
 closing:
   who: <who gives the verdict on a change in use, such as its author or whoever answers for the product>
   days: 7  # in use with nothing recorded against it, a change that promised nothing closes by itself
@@ -133,7 +142,7 @@ flowchart LR
 |---|---|---|---|
 | <check> | <in the person's words> | <every round, or once before the review> | <colors> |
 
-Where a person approves is this project's decision. `brief-approval` on yellow and red, and `person-review` on red, are a proposal: the person, or their team, can remove `brief-approval` from yellow, and then the brief and its scenarios are still written, the person is told in a line what the change will do and nobody waits for them, or add and remove either in `colors`, on any color. Removing one later loosens a gate, so the person approves it. A change goes through its checks in two tiers: each round, the seal, the tests of the change, lint and types and the secret scan, under two minutes together; then once, before the reviewer, what takes longer, such as one browser test of what the change touches when it touches what a person sees, under ten minutes in all. The caps of each color are a start, which the project's logs correct, and a limit that runs out stops the next round, never the gates or the review of a build already finished. Mutation testing and a threshold of coverage are in no color at the start: hardening adds them, at their tool's own default, when the tests proved weak. A check that not every color asks judges only what the change adds or changes: if it judged the whole code, the first change of that color would answer for what the lighter ones shipped. From `platform` up, red can ask for a `hidden` check too: more examples of the same scenarios, kept where the builder's credentials can't read them, a place the front matter names in `hidden`. Anything no zone covers is never green, and it stops no change: when the orchestrator briefs the change, it judges the path against what this blueprint marks as delicate, yellow unless it does what a red zone does, and it asks only when it can't tell.
+Where a person approves is this project's decision. `brief-approval` on yellow and red, and `person-review` on red, are a proposal: the person, or their team, can remove `brief-approval` from yellow, and then the brief and its scenarios are still written, the person is told in a line what the change will do and nobody waits for them, or add and remove either in `colors`, on any color. Removing one later loosens a gate, so the person approves it. A change goes through its checks in two tiers: each round, the seal, the tests of the change, lint and types and the secret scan, under two minutes together; then once, before the reviewer, what takes longer, such as one browser test of what the change touches when it touches what a person sees, under ten minutes in all. The caps of each color are a start, which the project's logs correct, and a limit that runs out stops the next round, never the gates or the review of a build already finished. A threshold of coverage is in no color at the start: hardening adds it, at its tool's own default, when the tests proved weak. Mutation testing, software's check of planted faults, comes with the first yellow change that has cases, before the review and with `fails_to: checks`, as the software recipe says; in other areas a check of planted faults comes when hardening asks for it. A check that not every color asks judges only what the change adds or changes: if it judged the whole code, the first change of that color would answer for what the lighter ones shipped. From `platform` up, red can ask for a `hidden` check too: more examples of the same scenarios, kept where the builder's credentials can't read them, a place the front matter names in `hidden`. Anything no zone covers is never green, and it stops no change: when the orchestrator briefs the change, it judges the path against what this blueprint marks as delicate, yellow unless it does what a red zone does, and it asks only when it can't tell.
 
 ## Emergencies
 

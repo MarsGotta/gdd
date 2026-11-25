@@ -81,14 +81,14 @@ pub fn approval_line(closing: &Value) -> Option<String> {
     })
 }
 
-/// When a hardening record first named each change as the one that let something through.
-pub fn named(blueprint_log: &[Entry]) -> BTreeMap<String, i64> {
-    let mut out = BTreeMap::new();
+/// Each time a hardening record named a change as the one that let something through, in order.
+pub fn named(blueprint_log: &[Entry]) -> BTreeMap<String, Vec<i64>> {
+    let mut out: BTreeMap<String, Vec<i64>> = BTreeMap::new();
     for (_, v) in log::events(blueprint_log) {
         if log::is_step(v, "harden")
             && let (Some(id), Some(t)) = (v["change"].as_str(), log::ts(v))
         {
-            out.entry(id.to_string()).or_insert(t);
+            out.entry(id.to_string()).or_default().push(t);
         }
     }
     out
@@ -127,6 +127,9 @@ pub enum Standing {
     Waiting(String),
     /// It promised nothing: it closes by itself at this time unless something is recorded against it.
     Quiet(i64),
+    /// It fixed what this change shipped, and waits for a hardening record that names it, with
+    /// what should have caught it, even nothing (decision 143).
+    Unhardened(String),
 }
 
 impl Standing {
@@ -134,7 +137,7 @@ impl Standing {
     pub fn word(&self) -> &'static str {
         match self {
             Standing::Closed(_) => "closed",
-            Standing::Waiting(_) => "waiting",
+            Standing::Waiting(_) | Standing::Unhardened(_) => "waiting",
             Standing::Quiet(_) => "quiet",
         }
     }
@@ -148,7 +151,8 @@ impl Standing {
 pub fn standing(
     p: &Progress,
     bp: &Blueprint,
-    named: Option<i64>,
+    named: &[i64],
+    fix: Option<(String, bool)>,
     undone: Option<&Undone>,
     now: i64,
 ) -> Option<Standing> {
@@ -161,6 +165,10 @@ pub fn standing(
             "{} said {}, line {}",
             v.who, v.verdict, v.line
         )));
+    }
+    // A fix of what shipped closes once hardening has looked at what let it through.
+    if let Some((fixed, false)) = fix {
+        return Some(Standing::Unhardened(fixed));
     }
     if let Some(e) = expected(p) {
         return Some(Standing::Waiting(format!("expected: {e}")));
@@ -182,7 +190,7 @@ pub fn standing(
     // Undone, or named once it was in use, before its days went by: with no days, nothing is.
     Some(if until > shipped && undone.is_some_and(|u| u.at < until) {
         Standing::Waiting("what it shipped was reverted, so it no longer closes by itself".into())
-    } else if named.is_some_and(|t| shipped <= t && t < until) {
+    } else if named.iter().any(|t| shipped <= *t && *t < until) {
         Standing::Waiting("a hardening record names it, so it no longer closes by itself".into())
     } else if now >= until {
         Standing::Closed("by itself, with nothing recorded against it".into())
@@ -261,6 +269,16 @@ pub fn next(id: &str, p: &Progress, standing: Option<&Standing>, now: i64) -> Ne
                 crate::time::waited(until - now)
             ),
         ),
+        Some(Standing::Unhardened(fixed)) => Next {
+            step: "in-use".into(),
+            say: format!(
+                "{shipped}: it fixed what {fixed} shipped, and it closes once a hardening record names {fixed}, with what should have caught it, even none. Propose that record to the person once, with gdd-harden: what to record is theirs"
+            ),
+            command: format!(
+                "gdd step blueprint harden --change {fixed} --crack \"<what got through>\" --expected-check <the check that should have caught it, or none> --caught-by <who or what found it> --proposal \"<what you propose, or nothing>\" --result <proposed or approved>"
+            ),
+            blocked: None,
+        },
         Some(Standing::Closed(how)) => rest("done", format!("{shipped}: closed, {how}")),
         None => rest("done", shipped),
     }

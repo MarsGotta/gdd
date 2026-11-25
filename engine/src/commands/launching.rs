@@ -544,6 +544,52 @@ fn fix_round_notes(s: &mut Vec<String>, l: &Loaded, role: &str, setup: bool) {
             ));
         }
     }
+    // When the gates sent the tests back and one of the builder's checks failed too, the builder
+    // hears that failure once the corrected seal is in: the checks step took the gates out of the
+    // state.
+    if role == "build"
+        && p.last_gates.is_none()
+        && let Some(f) = p.checks_fix.as_ref().filter(|f| f.from_gates && !f.tests_only)
+        && let Some((_, v)) = events.iter().find(|(line, _)| *line == f.line)
+    {
+        s.push("A fix round. Besides the tests the checks role strengthened, this failed at the gates:".into());
+        for e in v["gates"].as_array().into_iter().flatten().filter(|e| {
+            e["result"] == "fail"
+                && !l.bp
+                    .check(str_of(e, "check"))
+                    .is_some_and(|k| k.fails_to_checks())
+        }) {
+            s.push(format!(
+                "- {}: `{}` exit {}; last lines: {}",
+                str_of(e, "check"),
+                str_of(e, "command"),
+                e["exit"],
+                output_tail(str_of(e, "tail"), 320)
+            ));
+        }
+    }
+    // A check of the gates that judges the change's own tests sent them back (decision 142).
+    if role == "checks"
+        && let Some(f) = p.checks_fix.as_ref().filter(|f| f.from_gates)
+        && let Some((_, v)) = events.iter().find(|(line, _)| *line == f.line)
+    {
+        s.push("A fix round. A check of the gates found what your sealed tests let through:".into());
+        for e in v["gates"].as_array().into_iter().flatten().filter(|e| {
+            e["result"] == "fail"
+                && l.bp
+                    .check(str_of(e, "check"))
+                    .is_some_and(|k| k.fails_to_checks())
+        }) {
+            s.push(format!(
+                "- {}: `{}` exit {}; last lines: {}",
+                str_of(e, "check"),
+                str_of(e, "command"),
+                e["exit"],
+                output_tail(str_of(e, "tail"), 320)
+            ));
+        }
+        s.push("Strengthen the tests it names so that each rejects the wrong version it shows, on the same seal branch, and prove them against their scenarios. Never edit product code.".into());
+    }
     if let Some((line, r)) = events
         .iter()
         .rev()

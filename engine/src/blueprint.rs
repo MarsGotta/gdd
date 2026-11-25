@@ -18,11 +18,33 @@ pub struct Check {
     pub runs: String,
     pub when: Vec<String>,
     pub cases_each_change: bool,
+    /// Who a failure goes back to: `build`, the builder, or `checks`, whoever wrote the change's
+    /// checks, as with a check of planted faults whose survivor is a test too weak (decision 142).
+    pub fails_to: String,
+    /// `blocks`, the default, or `reports`: it runs and its result is written, and a failure
+    /// stops nothing, except on red (decision 145).
+    pub state: String,
 }
 
 impl Check {
     pub fn before_review(&self) -> bool {
         self.runs == "before review"
+    }
+
+    /// Whether its failure goes back to whoever wrote the change's checks.
+    pub fn fails_to_checks(&self) -> bool {
+        self.fails_to == "checks"
+    }
+
+    /// Whether the blueprint has it report and not block. The seal always blocks.
+    pub fn reports(&self) -> bool {
+        self.state == "reports" && self.id != "seal"
+    }
+
+    /// Whether a quarantine can take it: never the seal, nor the tests of a change's own scenarios,
+    /// which judge the change itself (decision 145).
+    pub fn quarantinable(&self) -> bool {
+        self.id != "seal" && !self.cases_each_change
     }
 }
 
@@ -192,6 +214,33 @@ impl Blueprint {
             .map(|n| n as usize)
     }
 
+    /// The colors whose checks, level and limits are still the template's proposal, which the person
+    /// decides when a change of that color first comes (decision 141). Red is never among them.
+    pub fn provisional(&self) -> Vec<String> {
+        let v = &self.front["provisional"];
+        let named = list(v);
+        if !v.is_array() || named.iter().any(|c| crate::color_rank(c).is_none()) {
+            return vec![];
+        }
+        named.into_iter().filter(|c| c != "red").collect()
+    }
+
+    /// How many changes a check that passed and failed on the same commit reports instead of
+    /// blocking, the person's rule approved once: none where the blueprint doesn't say (decision 145).
+    pub fn quarantine(&self) -> Option<usize> {
+        whole(&self.front["quarantine"])
+            .filter(|n| *n >= 1)
+            .map(|n| n as usize)
+    }
+
+    /// A figure of `harden` that opens a proposal of hardening once it is crossed: a whole number
+    /// from 1 on, or none (decision 144).
+    pub fn harden_figure(&self, key: &str) -> Option<usize> {
+        whole(&self.front["harden"][key])
+            .filter(|n| *n >= 1)
+            .map(|n| n as usize)
+    }
+
     pub fn color_level(&self, color: &str) -> Option<String> {
         s(&self.front["colors"][color]["level"])
     }
@@ -232,6 +281,12 @@ impl Blueprint {
                         .unwrap_or_else(|| "each round".into()),
                     when: list(&c["when"]),
                     cases_each_change: c["cases"] == "each change",
+                    fails_to: s(&c["fails_to"])
+                        .filter(|v| v == "checks")
+                        .unwrap_or_else(|| "build".into()),
+                    state: s(&c["state"])
+                        .filter(|v| v == "reports")
+                        .unwrap_or_else(|| "blocks".into()),
                 })
             })
             .collect()
@@ -345,6 +400,30 @@ impl Blueprint {
             Some(other) => p.push(format!("its contract is {other}, not {}", crate::CONTRACT)),
             None => p.push("it names no contract".into()),
         }
+        let provisional = &self.front["provisional"];
+        if !provisional.is_null() {
+            let named = list(provisional);
+            if !provisional.is_array() || named.iter().any(|c| crate::color_rank(c).is_none()) {
+                p.push("provisional is not a list of colors: every color counts as decided".into());
+            }
+            if named.iter().any(|c| c == "red") {
+                p.push("provisional names red: what can't be undone is decided with the first yes, so red counts as decided".into());
+            }
+        }
+        if let Value::Object(figures) = &self.front["harden"] {
+            for (key, v) in figures {
+                if !["sent_back", "approved_unchanged", "silent_runs", "explore_after"].contains(&key.as_str()) {
+                    p.push(format!("harden has {key}, which the layer doesn't count: it opens nothing"));
+                } else if self.harden_figure(key).is_none() && !v.is_null() {
+                    p.push(format!("harden.{key} is not a whole number from 1 on: it opens nothing"));
+                }
+            }
+        } else if !self.front["harden"].is_null() {
+            p.push("harden is not a map of figures: nothing opens a proposal by itself".into());
+        }
+        if !self.front["quarantine"].is_null() && self.quarantine().is_none() {
+            p.push("quarantine is not a whole number of changes from 1 on: a flaky check keeps blocking".into());
+        }
         let parallel = &self.front["parallel"];
         if !parallel.is_null() && self.parallel().is_none() {
             p.push("parallel is not a whole number of changes from 1 on: no change is held back for another".into());
@@ -373,6 +452,20 @@ impl Blueprint {
                 p.push(format!(
                     "color {color} has readings {readings}, which is neither 1 nor 3: its brief gets one reading"
                 ));
+            }
+        }
+        if let Value::Array(items) = &self.front["checks"] {
+            for c in items {
+                let id = s(&c["id"]).unwrap_or_default();
+                if let Some(v) = s(&c["fails_to"]).filter(|v| v != "build" && v != "checks") {
+                    p.push(format!("check {id} has fails_to {v}, neither build nor checks: its failures go to the builder"));
+                }
+                if let Some(v) = s(&c["state"]).filter(|v| v != "blocks" && v != "reports") {
+                    p.push(format!("check {id} has state {v}, neither blocks nor reports: it blocks"));
+                }
+                if id == "seal" && s(&c["state"]).as_deref() == Some("reports") {
+                    p.push("check seal has state reports: the seal always blocks".into());
+                }
             }
         }
         let ids: Vec<String> = self.checks().into_iter().map(|c| c.id).collect();
@@ -431,6 +524,7 @@ mod tests {
             "a placeholder is no cap"
         );
         assert_eq!(b.cap("yellow", "minutes_per_change"), Some(45));
+        assert_eq!(b.provisional(), vec!["green", "yellow"]);
         assert_eq!(b.cap("green", "seconds_each_round"), Some(120));
         assert_eq!(b.cap("", "minutes_per_change"), None);
         let seal = b.check("seal").unwrap();
@@ -490,5 +584,34 @@ mod tests {
         assert!(c[0].before_review());
         assert_eq!(c[0].when, vec![":(glob)src/texts/**"]);
         assert_eq!(c[1].runs, "each round");
+    }
+
+    #[test]
+    fn provisional_names_the_colors_still_to_decide_and_never_red() {
+        let b = |front: &str| Blueprint::parse(&format!("---\ncontract: gdd/1\n{front}\n---\n")).unwrap();
+        let some = b("provisional: [green, yellow]");
+        assert_eq!(some.provisional(), vec!["green", "yellow"]);
+        assert!(some.problems().is_empty(), "{:?}", some.problems());
+        let red = b("provisional: [yellow, red]");
+        assert_eq!(red.provisional(), vec!["yellow"]);
+        assert!(red.problems().iter().any(|p| p.contains("provisional names red")));
+        for wrong in ["provisional: yellow", "provisional: [yellow, blue]"] {
+            let w = b(wrong);
+            assert!(w.provisional().is_empty(), "{wrong}");
+            assert!(w.problems().iter().any(|p| p.contains("not a list of colors")), "{wrong}");
+        }
+        assert!(b("parallel: 2").provisional().is_empty());
+    }
+
+    #[test]
+    fn harden_names_the_figures_that_open_a_proposal() {
+        let b = |front: &str| Blueprint::parse(&format!("---\ncontract: gdd/1\n{front}\n---\n")).unwrap();
+        let ok = b("harden:\n  sent_back: 3\n  silent_runs: 50");
+        assert_eq!((ok.harden_figure("sent_back"), ok.harden_figure("silent_runs")), (Some(3), Some(50)));
+        assert_eq!(ok.harden_figure("approved_unchanged"), None);
+        assert!(ok.problems().is_empty(), "{:?}", ok.problems());
+        let wrong = b("harden:\n  sent_back: 0\n  escapes: 2");
+        assert!(wrong.problems().iter().any(|p| p.contains("harden.sent_back is not a whole number")));
+        assert!(wrong.problems().iter().any(|p| p.contains("harden has escapes")));
     }
 }

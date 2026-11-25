@@ -23,7 +23,7 @@ const DOMINIO = 'https://gate-driven.dev';
 const IDIOMAS = ['es', 'en'];
 const otro = (idioma) => (idioma === 'es' ? 'en' : 'es');
 const norm = (s) => s.replace(/[  ]/g, ' ').replace(/\s+/g, ' ').trim();
-const MANIFIESTO = 'v0.11';
+const MANIFIESTO = 'v0.12';
 const PDF = { es: `manifiesto-gdd-${MANIFIESTO}.pdf`, en: `manifesto-gdd-${MANIFIESTO}.pdf` };
 
 // --- Which page of the site each page of the canvas is ------------------------------------
@@ -258,7 +258,7 @@ const entrada = (loc, es, en) => `  <url><loc>${DOMINIO}${loc}</loc><lastmod>${F
 fs.writeFileSync(path.join(dist, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${parejas.flatMap(([es, en]) => [entrada(es, es, en), entrada(en, es, en)]).join('\n')}\n</urlset>\n`);
 fs.writeFileSync(path.join(dist, '_headers'), `/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n\n/*.md\n  X-Robots-Tag: noindex\n\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n`);
 // Old addresses lead to what replaced them, with and without the final slash.
-const pdfs = ['0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '0.10'].flatMap((v) => [`/manifiesto-gdd-v${v}.pdf /${PDF.es} 301`, `/manifesto-gdd-v${v}.pdf /${PDF.en} 301`]);
+const pdfs = ['0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '0.10', '0.11'].flatMap((v) => [`/manifiesto-gdd-v${v}.pdf /${PDF.es} 301`, `/manifesto-gdd-v${v}.pdf /${PDF.en} 301`]);
 fs.writeFileSync(path.join(dist, '_redirects'), `${[...REDIRECCIONES.flatMap(([de, a]) => [`${de}/ ${a} 301`, `${de} ${a} 301`]), ...pdfs].join('\n')}\n`);
 
 console.log('Listo:', Object.keys(PAGINAS).length, 'páginas en dist/');

@@ -14,3 +14,7 @@ If their builders left no counts, say so. The gate results tell you what happene
 Filled in for a lint check:
 
 `--catches "Last 8 changes, 11 gate runs, no failures after the builders finished. The builders left no counts." --cost "33 seconds in total. Tokens and wait were unmeasured."`
+
+An approval a color asks for, such as `brief-approval`, is reduced the same way, with its name in `--expected-check`. In `--catches`, give the changes of that color asked to approve their brief and how many came back with a correction, from `brief_corrections`, and how many were approved within a minute of their question. In `--cost`, give the waits of those questions, from `asks`. What still guards that color without it goes in the proposal too: the reading of the brief, where the color has one, and the person's review of the change.
+
+`--catches "Last 10 yellow changes asked to approve their brief, none came back corrected, none approved within a minute." --cost "212 minutes waiting for those yeses. Tokens unmeasured."`

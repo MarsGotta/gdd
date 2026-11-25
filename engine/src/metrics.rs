@@ -111,7 +111,7 @@ fn cap_keys() -> [(&'static str, &'static str, &'static str); 6] {
 
 /// Build every table from the changes given. `named` is when a hardening record first named
 /// each change, from the blueprint's log, which may not be among the inputs.
-pub fn tables(bp: &Blueprint, inputs: &[Input], named: &BTreeMap<String, i64>, now: i64) -> Tables {
+pub fn tables(bp: &Blueprint, inputs: &[Input], named: &BTreeMap<String, Vec<i64>>, now: i64) -> Tables {
     let late: Vec<String> = bp
         .checks()
         .into_iter()
@@ -128,7 +128,7 @@ pub fn tables(bp: &Blueprint, inputs: &[Input], named: &BTreeMap<String, i64>, n
             bp,
             input.entries,
             GitView::default(),
-            named.get(id).copied(),
+            named,
             input.git.reverted.clone().flatten(),
             now,
         );
@@ -142,7 +142,15 @@ pub fn tables(bp: &Blueprint, inputs: &[Input], named: &BTreeMap<String, i64>, n
         engine_rows(&mut t.engine, &mut n, input.journal);
         if log_kind(id) != LogKind::Blueprint {
             t.changes
-                .push(change_row(bp, input, &events, &layer, &state, &n, now));
+                .push({
+                    let mut row = change_row(bp, input, &events, &layer, &state, &n, now);
+                    // A record counts once the fix was briefed: an older one looked at another thing.
+                    row.insert(
+                        "fix_hardened".into(),
+                        json!(state.progress.fix_hardened(named).map(|(_, h)| h)),
+                    );
+                    row
+                });
         }
     }
     t
@@ -599,6 +607,10 @@ fn change_row(
     let extra = vec![
         ("waivers", json!(waivers)),
         ("reviews_to_checks", reviews_to_checks(id, events)),
+        ("gates_to_checks", gates_to_checks(id, events)),
+        ("fixes", json!(state.progress.fixes)),
+
+        ("brief_corrections", brief_corrections(events)),
         ("asks", json!(n.asks)),
         ("asks_answered", json!(n.asks_answered)),
         ("gates_runs", json!(n.gates_runs)),
@@ -783,6 +795,8 @@ pub fn summary(t: &Tables) -> Vec<String> {
     work_lines(&mut out, t, &changes);
     gates_lines(&mut out, t, &changes);
     weak_checks_lines(&mut out, &changes);
+    approval_lines(&mut out, &changes);
+    escape_lines(&mut out, &changes);
     check_evidence(&mut out, t);
     hardening_lines(&mut out, t);
     ask_lines(&mut out, t);
@@ -1108,6 +1122,102 @@ fn reviews_to_checks(id: &str, events: &[(usize, &Value)]) -> Value {
     json!(n)
 }
 
+/// The gates runs that sent the change back to whoever wrote its checks, because a check that
+/// judges its tests failed, such as one of planted faults (decision 142). Null for a setup log.
+fn gates_to_checks(id: &str, events: &[(usize, &Value)]) -> Value {
+    if log_kind(id) != LogKind::Change {
+        return Value::Null;
+    }
+    let n = events
+        .iter()
+        .filter(|(_, v)| step(v) == "gates")
+        .filter(|(_, v)| matches!(v["fix_role"].as_str(), Some("checks" | "checks-then-build")))
+        .count();
+    json!(n)
+}
+
+/// The questions asking the person to approve the brief that came back with a correction: they
+/// answered something other than the yes, or a new version of the brief came before it, as the
+/// last question asked (decision 138). Null when nobody was asked to approve a brief.
+pub(crate) fn brief_corrections(events: &[(usize, &Value)]) -> Value {
+    let (mut asked, mut corrected, mut open) = (0, 0, false);
+    for (_, v) in events {
+        let new_version = step(v) == "brief" && v["report"]["result"] != json!("stopped");
+        match kind(v) {
+            "ask" => {
+                open = str_of(v, "of") == "brief";
+                asked += usize::from(open);
+            }
+            "answer" if open => (corrected, open) = (corrected + 1, false),
+            // A new version corrected it; a stop only ends the question.
+            "step" if open && step(v) == "brief" => {
+                (corrected, open) = (corrected + usize::from(new_version), false)
+            }
+            "approval" if str_of(v, "of") == "brief" => open = false,
+            _ => {}
+        }
+    }
+    if asked == 0 {
+        Value::Null
+    } else {
+        json!(corrected)
+    }
+}
+
+/// What got through: the fixes of what a change shipped, by the color of the change they fixed, and
+/// how many still wait for a hardening record that names it (decision 143).
+fn escape_lines(out: &mut Vec<String>, changes: &[&Row]) {
+    let fixed: Vec<&str> = changes.iter().filter_map(|r| r["fixes"].as_str()).collect();
+    if fixed.is_empty() {
+        return;
+    }
+    let color_of = |id: &str| {
+        changes
+            .iter()
+            .find(|r| r["change"] == json!(id))
+            .and_then(|r| r["color"].as_str())
+            .unwrap_or("none")
+    };
+    let mut by_color: BTreeMap<&str, usize> = BTreeMap::new();
+    for f in &fixed {
+        *by_color.entry(color_of(f)).or_default() += 1;
+    }
+    // A record counts once the fix was briefed: an older one looked at something else.
+    let open = changes
+        .iter()
+        .filter(|r| r["fix_hardened"] == json!(false))
+        .count();
+    let each: Vec<String> = by_color.iter().map(|(c, n)| format!("{c} {n}")).collect();
+    out.push(format!(
+        "fixes of what shipped, by the color of what they fixed: {}; {open} still without a hardening record",
+        each.join(", ")
+    ));
+}
+
+/// The changes of each color asked to approve their brief, and how many came back corrected: where
+/// a color's approvals keep correcting nothing, hardening may propose taking them out.
+fn approval_lines(out: &mut Vec<String>, changes: &[&Row]) {
+    let mut by_color: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+    for r in changes.iter().filter(|r| r["brief_corrections"].is_u64()) {
+        let n = by_color
+            .entry(r["color"].as_str().unwrap_or("none"))
+            .or_default();
+        n.0 += 1;
+        n.1 += usize::from(r["brief_corrections"].as_u64().unwrap_or(0) > 0);
+    }
+    if by_color.is_empty() {
+        return;
+    }
+    let each: Vec<String> = by_color
+        .iter()
+        .map(|(color, (asked, corrected))| format!("{color} {corrected} of {asked}"))
+        .collect();
+    out.push(format!(
+        "briefs whose approval brought a correction: {}",
+        each.join(", ")
+    ));
+}
+
 /// The changes of each color whose review sent them back to whoever wrote their checks: where
 /// that keeps happening, hardening proposes a check of planted faults for the color.
 fn weak_checks_lines(out: &mut Vec<String>, changes: &[&Row]) {
@@ -1119,17 +1229,28 @@ fn weak_checks_lines(out: &mut Vec<String>, changes: &[&Row]) {
         n.0 += 1;
         n.1 += usize::from(r["reviews_to_checks"].as_u64().unwrap_or(0) > 0);
     }
-    if by_color.values().all(|(_, back)| *back == 0) {
-        return;
+    if by_color.values().any(|(_, back)| *back > 0) {
+        let each: Vec<String> = by_color
+            .iter()
+            .map(|(color, (reviewed, back))| format!("{color} {back} of {reviewed}"))
+            .collect();
+        out.push(format!(
+            "reviewed changes sent back to whoever wrote their checks: {}",
+            each.join(", ")
+        ));
     }
-    let each: Vec<String> = by_color
-        .iter()
-        .map(|(color, (reviewed, back))| format!("{color} {back} of {reviewed}"))
-        .collect();
-    out.push(format!(
-        "reviewed changes sent back to whoever wrote their checks: {}",
-        each.join(", ")
-    ));
+    // What a check of planted faults sent back at the gates, before any reviewer.
+    let mut gated: BTreeMap<&str, usize> = BTreeMap::new();
+    for r in changes.iter().filter(|r| r["gates_to_checks"].as_u64().unwrap_or(0) > 0) {
+        *gated.entry(r["color"].as_str().unwrap_or("none")).or_default() += 1;
+    }
+    if !gated.is_empty() {
+        let each: Vec<String> = gated.iter().map(|(c, n)| format!("{c} {n}")).collect();
+        out.push(format!(
+            "changes the gates sent back to whoever wrote their checks: {}",
+            each.join(", ")
+        ));
+    }
 }
 
 /// What shipped and was reverted later in the main branch, by color: where it happens, a gate let

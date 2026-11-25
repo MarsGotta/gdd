@@ -33,6 +33,7 @@ What `gdd next` doesn't hand you:
 | A role is next | `gdd launch <id> <role> --run` runs a fresh role and records it. For manual launches or finding destinations, omit `--run` and use the given model and the prompt file it names, unchanged |
 | A manually launched role ends | `gdd report <id> <step> <file>`, its last message whole in the file or on standard input with `-`: `--model`, `--seconds`, `--tokens` and `--tokens-read` when measured, `--closed f1=fixed` for findings a later round settles |
 | Something is left for later | `gdd backlog add <item> --what "<what the person gets>" --color <color>` |
+| It fixes what a change shipped | `--fixes <that change>` on its `gdd brief`; `gdd color <id> --paths <path>...` names a recent change its paths share. It closes once a hardening record names that change, even with nothing to propose |
 | Your own `prepare`, `harden` or `exam` | `gdd step blueprint <that step>`, with the flags its skill gives |
 | A line of a log is wrong | `gdd correct <id> --line <n> "<what was wrong>"`, with `--void` when it must not count |
 
@@ -40,7 +41,7 @@ What `gdd next` doesn't hand you:
 
 1. Read `gdd/blueprint.md`. If there isn't one, the next moment is Prepare.
 2. Read the request, in the person's words.
-3. Run `gdd next`. If it says the standing checks aren't set up, they come before the request: do it now, as `references/standing-checks.md` says, in this skill's folder. Don't ask whether to or offer to skip it: the person agreed to it with the blueprint. Nothing else under way comes before a request: what is stopped waits for the person, said in one line.
+3. Run `gdd next`. If it says the standing checks aren't set up, set them up now, as `references/standing-checks.md` says, in this skill's folder, and brief the request alongside them: its gates wait for them. Don't ask whether to or offer to skip it: the person agreed to it with the blueprint. Nothing else under way comes before a request: what is stopped waits for the person, said in one line.
 4. The brief has no status. For a change under way, trust the layer and git.
 5. While `gdd next` says there is room, another item can start alongside the open changes, each with its own roles: plan its paths with `gdd color <id> --paths`, and start it where it shares none. The person still hears one question at a time.
 6. If the layer says git can't write a ref, stop and tell the person in one line, and no more: "I can't start: git can't write in this copy, so nothing was built. Open me where it can and I'll go on."
@@ -90,7 +91,7 @@ The person may know neither the method nor the code, and approves blind what the
 - **It doesn't fit.** A role that stops starts its last message with `CANNOT:` and the reason, and the layer says where it goes. If `gdd-checks` stops on returned test findings, the builder takes them all. Only `gdd-checks` or the person correct a check: the fix is in the brief or in the check, never in a looser check.
 - **It asks what's next.** A role that does, or offers something else, doesn't choose: the backlog and the person do.
 - **The environment failed.** An expired session, a used-up quota, a full disk or a timeout isn't the change failing: report nothing for it, retry once or tell the person.
-- **It fails on the base too.** If a check also fails without the change, it isn't the change's: it's known debt in `gdd/debt.md`, or an unstable check. Rerun it once and warn. If it isn't in `gdd/debt.md`, launch no build under it and propose the one way out you'd take, for a yes: recording debt and quarantining a check are the team's decisions, never an agent's.
+- **It fails on the base too.** If a check also fails without the change, it isn't the change's: it's known debt in `gdd/debt.md`, or an unstable check. Rerun it once and warn. If it isn't in `gdd/debt.md`, launch no build under it and propose the one way out you'd take, for a yes: recording debt and quarantining a check are the team's decisions, never an agent's. Only the layer quarantines, by the rule the blueprint's `quarantine` gives: rerunning the gates on the same commit is how it sees a check that changes its answer.
 
 ## Rules that don't bend
 

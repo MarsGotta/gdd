@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: the-first-change-waits-for-the-standing-checks
-description: The blueprint is approved and nobody has set up the standing checks yet. Asked for a typo, the orchestrator sets them up once, has them tried and ships them, and only then takes the change through its gates.
+description: The blueprint is approved and nobody has set up the standing checks yet. Asked for a typo, the orchestrator sets them up once, has them tried and ships them, and takes the typo alongside them, through its gates only once they hold (decision 140).
 tags: [orchestrator, prepare]
 runs: 3
 execution:
@@ -68,10 +68,10 @@ graders:
     tool: Agent
     input_match: '^(?=[\s\S]*gdd-build)(?=[\s\S]*"model"\s*:\s*"[^"]*haiku)'
     min: 1
-  - name: has-them-tried-before-anyone-builds
+  - name: takes-the-typo-alongside-them
     type: regex
     target: trace
-    pattern: '^(?:(?!"subagent_type":\s*"(?:gdd:)?gdd-build")[\s\S])*?"subagent_type":\s*"(?:gdd:)?gdd-review"'
+    pattern: 'goes alongside them, and its first gates wait for them'
     weight: 2
   - name: logs-a-trial-that-passed
     type: regex
@@ -141,7 +141,7 @@ graders:
     weight: 2
   - name: reports-setting-up-the-standing-checks-first
     type: llm
-    criteria: Does the owner learn that the standing checks were set up before the typo was fixed?
+    criteria: Does the owner learn that the checks every change passes were set up, and in place before the typo fix went in?
     weight: 2
   - name: writes-no-line-of-the-log-by-hand
     type: regex
