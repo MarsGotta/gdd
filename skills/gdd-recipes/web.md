@@ -1,6 +1,6 @@
 # Gates for the web
 
-Open this when the project builds for the web. It has four parts: what usually goes wrong, what to start with, what to add when something slips through, and the traps of setting it up. No tool is named here: look them up for the stack, from each tool's own page, as `research.md` says.
+Open this when the project builds for the web. It has four parts: what usually goes wrong, what to start with, what to add when something slips through, and the traps of setting it up. No tool is named here: look them up for the stack, from each tool's own page, as `../gdd-prepare/references/research.md` says.
 
 ## What usually goes wrong
 
@@ -13,9 +13,9 @@ Candidates for the rules of the product in the constitution, for the person to c
 
 ## What to start with
 
-The minimum of `gates.md`, and:
+The minimum of `../gdd-prepare/references/gates.md`, and:
 
-1. tests of those rules, written from the scenarios of each change, each round, each at the level `software.md` gives it, never through the browser;
+1. tests of those rules, written from the scenarios of each change, each round, each at the level `software.md`, next to this recipe, gives it, never through the browser;
 2. one test that drives a browser through what the change touches, once before the review and only when the change touches what a person sees: the checks before the review take under ten minutes in all;
 3. nothing else until something slips through.
 

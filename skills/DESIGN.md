@@ -628,6 +628,11 @@ The website tells a change in six steps, the ones of its delicate case. They are
     - What the sources say: most tests narrow and a few end to end, with many end-to-end tests over few below them as the shape to avoid; acceptance criteria run below the interface, with a few checks of the interface itself; and more tests in the middle where an interface is built of components.
     - Another agent read the recipe against the skills and the contract before it went in. It found the first version wrong where it mattered most: it let a scenario's own test be end to end, which no round has the seconds for and whose proofs the layer doesn't count, and it let the end-to-end test assert nothing a constant would fail. Both are fixed as above.
     - No eval was run for it, and the layer is untouched.
+132. **The recipes are `gdd-recipes`, and a kit is the whole of an area.** What an area usually needs lived as references inside two skills: the one for the web was copied in `gdd-prepare` and `gdd-checks` and kept the same by a check, and decision 131 added a second pair for software. The method's author named them recipes, in `gdd-recipes`. A kit is something else: the whole of an area, with its configuration, its standing checks, its tools and its recipes, and the engine will bring it.
+    - **One folder, one copy.** `skills/gdd-recipes/` holds `software.md` and `web.md` once, with a README that says what a recipe is and who opens it. It has no `SKILL.md`, like `adapters/`: the skills are still eight, and the three plugins already install the whole `skills/` folder.
+    - **The skills open the recipe of the product's area.** `gdd-prepare` does before it proposes the gates, and `gdd-checks` when it writes the tests and sets up the standing checks, each by its path from the skill's folder, `../gdd-recipes/`. A recipe for another area joins the folder without touching either body, and both bodies came out shorter.
+    - **`check_skills.py` keeps the paths.** The pair of copies it compared is gone. It now checks that every path a skill or a recipe gives into another folder of the skills exists, and that the recipes carry no `SKILL.md`.
+    - The website's chapter on kits says that, until they come, `gdd-prepare` starts from these recipes, and that a kit will bring its own.
 
 ## Still open
 

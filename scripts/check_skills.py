@@ -87,8 +87,6 @@ JUDGES = {"gdd-review", "gdd-read"}  # they start without the project's instruct
 NO_SKILL = {"gdd-scout"}  # the orchestrator's search is no role: its file says all it does
 SHARED = [
     ("gdd-checks/references/scripts.md", "gdd-review/references/scripts.md"),
-    ("gdd-prepare/references/web.md", "gdd-checks/references/web.md"),
-    ("gdd-prepare/references/software.md", "gdd-checks/references/software.md"),
 ]
 PROJECT_SCRIPTS = {"gdd-prepare/assets/check.sh", "gdd-prepare/assets/limits.sh"}  # templates the project copies and owns: the skills never run them
 SCRIPTS = {".sh", ".bash", ".zsh", ".py", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl", ".ps1"}
@@ -397,6 +395,16 @@ def main():
                     continue
                 if any(pattern.search(sentence) for pattern in BY_HAND):
                     problem(path, f"tells an agent to write the log by hand, which only the layer writes: {sentence.strip()[:80]!r}")
+
+    # A path to another folder of the skills, such as a recipe, is read from the folder of the
+    # skill or recipe that names it, and must be there.
+    for name in ALL + ["gdd-recipes"]:
+        for path in sorted((SKILLS / name).rglob("*.md")):
+            for other in re.findall(r"`\.\./(gdd(?:-[a-z]+)?/[^`\s]+)`", path.read_text(encoding="utf-8")):
+                if not (SKILLS / other).exists():
+                    problem(path, f"points to ../{other}, which doesn't exist")
+    if (SKILLS / "gdd-recipes" / "SKILL.md").exists():
+        problem(SKILLS / "gdd-recipes", "the recipes are no skill: a SKILL.md there would make a ninth")
 
     binary = layer()
     if binary:

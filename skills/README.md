@@ -76,7 +76,7 @@ git clone https://github.com/MarsGotta/gdd
 agy plugin install gdd
 ```
 
-**By hand,** if you'd rather keep them inside your project: copy the eight folders whose names start with `gdd` into `.claude/skills/` for Claude Code, or `.agents/skills/` for Codex. For Claude Code, copy the subagents in [adapters/](adapters/) to `.claude/agents/` as well. Then build the layer from a clone of this repository, `sh engine/build.sh`, and copy the binary it prints to `.gdd/gdd` in your project, with `.gdd/` in its `.gitignore`.
+**By hand,** if you'd rather keep them inside your project: copy the folders whose names start with `gdd`, the eight skills and their recipes, into `.claude/skills/` for Claude Code, or `.agents/skills/` for Codex. For Claude Code, copy the subagents in [adapters/](adapters/) to `.claude/agents/` as well. Then build the layer from a clone of this repository, `sh engine/build.sh`, and copy the binary it prints to `.gdd/gdd` in your project, with `.gdd/` in its `.gitignore`.
 
 Then check it's there:
 
@@ -319,6 +319,8 @@ A fix never goes into a looser check. When a check looks wrong, only whoever wro
 | `gdd-review` | The reviewer, with a clean context | Brief on red, and Execute | What a brief leaves out, before anyone builds; then its verdict, and the risk worked out again |
 | `gdd-close` | The orchestrator, when you ask about a change in use | Close | What can be seen against what the brief expected, and your verdict in the log |
 | `gdd-harden` | The orchestrator, with you | Harden | The crack and the check that would have caught it, or the proposal to retire a gate |
+
+Next to them, [gdd-recipes/](gdd-recipes/) holds the recipes: what an area usually needs, for software and for the web. `gdd-prepare` opens the one for your product's area before it proposes the gates, and `gdd-checks` before it writes the tests. A kit, when the engine brings one, will carry its area's recipes along with the rest.
 
 What was decided about them, and why, is in [DESIGN.md](DESIGN.md). Every file they leave in your repository, with its template, is in [CONTRACT.md](CONTRACT.md): an engine will read and write those same files, so what you set up today will still serve you later. The mapping of each role to its skill, for each agent, is in [adapters/](adapters/).
 
