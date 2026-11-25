@@ -203,7 +203,7 @@ pub fn color_cmd(ctx: &Ctx, id: Option<&str>, paths: &[String]) -> Out {
             }
             super::alongside::say(ctx, &bp, id, paths, out);
             if id.is_none_or(|i| log_kind(i) == LogKind::Change) {
-                super::alongside::say_may_fix(ctx, id, paths, out);
+                super::alongside::say_may_fix(ctx, id, out);
             }
             // Before the standing checks hold, a try with no change, as Prepare's, has nothing to
             // go ahead of; a change going alongside them does (decision 140).

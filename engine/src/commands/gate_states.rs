@@ -24,8 +24,9 @@ pub(super) fn flaky_now(entries: &[Entry], head: &str, ran: &[crate::gates::Ran]
         .collect()
 }
 
-/// The checks in quarantine for a change: one a gates run found flaky, while fewer changes than
-/// the blueprint's `quarantine` started after that run, and no hardening record named it since.
+/// The checks in quarantine for a change: one the gates of another change found flaky, while fewer
+/// changes than the blueprint's `quarantine` started after that run, and no hardening record named
+/// it since.
 pub(super) fn quarantined(project: &Project, bp: &Blueprint, id: &str) -> Vec<String> {
     let Some(n) = bp.quarantine() else {
         return vec![];
@@ -40,7 +41,9 @@ pub(super) fn quarantined(project: &Project, bp: &Blueprint, id: &str) -> Vec<St
         {
             started.push(t);
         }
-        for (_, v) in events.iter().filter(|(_, v)| step(v) == "gates") {
+        // What a change's own gates found flaky never quarantines a check for that change: its
+        // builder could make a check change its answer to get past it.
+        for (_, v) in events.iter().filter(|(_, v)| other != id && step(v) == "gates") {
             let t = log::ts(v).unwrap_or(0);
             for c in v["flaky"].as_array().into_iter().flatten().filter_map(Value::as_str) {
                 let e = found.entry(c.to_string()).or_insert(t);

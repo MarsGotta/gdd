@@ -1011,8 +1011,14 @@ fn a_fix_says_what_it_fixes_and_closes_once_hardening_looked_at_it() {
     let old = r.gdd(&["step", "blueprint", "harden", "--change", "g1", "--crack", "an older crack", "--proposal", "nothing"]);
     assert_eq!(old.code, 0, "{}", old.out);
     std::thread::sleep(std::time::Duration::from_millis(1100));
+    // Sharing a path says nothing: only where its row of the backlog came from does.
+    let c = r.gdd(&["color", "g2", "--paths", "src/ui/page.txt"]);
+    assert!(c.facts["may_fix"].is_null(), "{}", c.out);
+    assert_eq!(r.gdd(&["backlog", "add", "g2", "--what", "The page holds up", "--color", "green"]).code, 0);
+    r.commit("Bookkeeping of g1: its log, the journals and the backlog");
     let c = r.gdd(&["color", "g2", "--paths", "src/ui/page.txt"]);
     assert_eq!(c.facts["may_fix"], serde_json::json!(["g1"]), "{}", c.out);
+    assert!(c.has("g2 was left in the backlog when g1 shipped"), "{}", c.out);
     assert!(c.has("brief it with --fixes g1"), "{}", c.out);
     let wrong = r.gdd(&["brief", "g2", "--paths", "src/ui/page.txt", "--fixes", "g9"]);
     assert_ne!(wrong.code, 0, "{}", wrong.out);

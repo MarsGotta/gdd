@@ -289,8 +289,8 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
             let can = l.bp.check(check).is_some_and(|c| c.quarantinable());
             let rule = match l.bp.quarantine() {
                 _ if !can => "it keeps blocking: the seal and the tests of a change's own scenarios never go into quarantine".to_string(),
-                Some(n) if red => format!("on red it keeps blocking; on green and yellow it reports from its next run on, for the next {n} changes, as the blueprint's quarantine says"),
-                Some(n) => format!("it reports instead of blocking from its next run on, for the next {n} changes, as the blueprint's quarantine says"),
+                Some(n) if red => format!("on red it keeps blocking; on green and yellow it reports instead of blocking for the next {n} changes started after this one, as the blueprint's quarantine says"),
+                Some(n) => format!("it keeps blocking for this change, and reports instead of blocking for the next {n} changes started after it, as the blueprint's quarantine says"),
                 None => "it keeps blocking: the blueprint has no quarantine".into(),
             };
             out.say(format!(

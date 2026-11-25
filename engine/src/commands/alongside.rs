@@ -174,39 +174,42 @@ pub(super) fn say(ctx: &Ctx, bp: &Blueprint, id: Option<&str>, paths: &[String],
     }
 }
 
-/// How many days after it shipped a change still counts as recent, for a change that touches what
-/// it planned and may fix it (decision 143).
-const RECENT_DAYS: i64 = 30;
-
-/// The changes shipped in the last days that planned a path these paths collide with, each with
-/// how many days ago: a change that touches them may fix what one of them shipped. It is said,
-/// never decided: whether it fixes something is the orchestrator's to tell from the request.
-pub(super) fn say_may_fix(ctx: &Ctx, id: Option<&str>, paths: &[String], out: &mut Out) {
+/// The change in whose bookkeeping the backlog first got this change's row: a gap its review or
+/// its orchestrator left for later, which this change may be fixing. In the one project measured,
+/// it named both fixes and nothing else, where the paths two changes share named eight of thirteen
+/// (decision 143). It is said, never decided: whether it fixes something is the orchestrator's to
+/// tell from the request.
+pub(super) fn say_may_fix(ctx: &Ctx, id: Option<&str>, out: &mut Out) {
+    let Some(id) = id else {
+        return;
+    };
     let project = Project::open(&ctx.root);
-    if id.is_some_and(|i| state::Progress::of(i, &project.read_log(i)).fixes.is_some()) {
+    if state::Progress::of(id, &project.read_log(id)).fixes.is_some() {
         return;
     }
-    let mine = cleaned(paths);
-    let now = time::now();
-    let mut recent = vec![];
-    for other in project.log_ids() {
-        if log_kind(&other) != LogKind::Change || Some(other.as_str()) == id {
-            continue;
-        }
-        let p = state::Progress::of(&other, &project.read_log(&other));
-        let (Some(_), Some(at)) = (&p.shipped, p.shipped_at) else {
-            continue;
-        };
-        let days = (now - at) / crate::closing::DAY;
-        let theirs = cleaned(&p.paths);
-        if days <= RECENT_DAYS && mine.iter().any(|m| theirs.iter().any(|t| collide(m, t))) {
-            out.say(format!(
-                "it touches what {other} shipped {days} days ago: if it fixes something {other} shipped, brief it with --fixes {other}"
-            ));
-            recent.push(other);
-        }
+    let row = format!("| {id} |");
+    let Ok(subjects) = git::out(
+        &ctx.root,
+        &["log", "--reverse", "--format=%s", "-S", &row, "--", "gdd/backlog.md"],
+    ) else {
+        return;
+    };
+    let Some(first) = subjects.lines().next() else {
+        return;
+    };
+    let from = first
+        .strip_prefix("Bookkeeping of ")
+        .and_then(|s| s.split(':').next())
+        .or_else(|| first.strip_prefix("Log the ship of "))
+        .map(str::trim);
+    let Some(other) = from.filter(|o| *o != id && log_kind(o) == LogKind::Change) else {
+        return;
+    };
+    if state::Progress::of(other, &project.read_log(other)).shipped.is_none() {
+        return;
     }
-    if !recent.is_empty() {
-        out.fact("may_fix", json!(recent));
-    }
+    out.say(format!(
+        "{id} was left in the backlog when {other} shipped: if it fixes something {other} shipped, brief it with --fixes {other}"
+    ));
+    out.fact("may_fix", json!([other]));
 }

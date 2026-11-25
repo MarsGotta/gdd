@@ -3433,10 +3433,14 @@ fn a_reporting_check_stops_nothing_and_a_flaky_one_goes_into_quarantine() {
     assert!(again.has("for the next 2 changes"), "{}", again.out);
     assert_eq!(r.log_lines("g1").last().unwrap()["flaky"], serde_json::json!(["slow"]));
     assert!(r.read("gdd/backlog.md").contains("| harden-flaky-slow |"));
+    // The change whose gates found it gets no quarantine of its own: slow still blocks it.
+    let third = r.gdd(&["gates", "g1"]);
+    assert_eq!(third.facts["passed"], false, "{}", third.out);
     // The next change: slow fails again, and in quarantine it only reports.
     assert_eq!(r.gdd(&["brief", "g2", "--paths", "src/ui/other.txt"]).code, 0);
     r.commit_on("work/g2", Some("main"), &[("src/ui/other.txt", "another page\n")], "Build");
     assert_eq!(r.report("g2", "build", &report_block("gdd-build", "done"), &[]).code, 0);
+    std::fs::write(&counter, "4\n").unwrap();
     let g2 = r.gdd(&["gates", "g2"]);
     assert_eq!(g2.facts["passed"], true, "{}", g2.out);
     let slow = r.log_lines("g2").last().unwrap()["gates"].as_array().unwrap().iter().find(|g| g["check"] == "slow").cloned().unwrap();
@@ -3463,6 +3467,11 @@ fn a_check_the_blueprint_has_report_fails_without_stopping_the_change() {
     assert_eq!(slow["reports"], true);
     assert_eq!(slow["result"], "reported");
     assert_eq!(r.gdd(&["limits", "g1"]).code, 0, "a reported failure spends no round");
+    // The reviewer gets what it found as a map, never as findings.
+    let review = r.gdd(&["launch", "g1", "review"]);
+    let prompt = review.facts["prompt"].as_str().unwrap();
+    assert!(prompt.contains("Checks that only report found this at the gates"), "{prompt}");
+    assert!(prompt.contains("it found something"), "{prompt}");
 }
 
 /// What a reporting check fails stops no later tier, and the seal never reports.

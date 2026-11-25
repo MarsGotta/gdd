@@ -394,6 +394,7 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
                     root.join(".gdd/evidence").join(id).display()
                 ));
             }
+            reported_map(s, l);
         }
         _ => {}
     }
@@ -451,6 +452,39 @@ fn last_attempt(s: &mut Vec<String>, build: &Value) {
     }
     if runs.len() > 3 {
         s.push(format!("{} other reported runs omitted.", runs.len() - 3));
+    }
+}
+
+/// What the checks that only report found at the last gates, such as the survivors of mutation
+/// testing: a map for the reviewer of what the tests may leave unchecked, never findings by
+/// themselves. In the one project measured, every change had survivors, also those the reviewer
+/// passed at once (decision 142).
+fn reported_map(s: &mut Vec<String>, l: &Loaded) {
+    let gates = log::events(&l.entries)
+        .into_iter()
+        .rev()
+        .find(|(_, v)| step(v) == "gates")
+        .map(|(_, v)| v.clone());
+    let Some(gates) = gates else {
+        return;
+    };
+    let reported: Vec<&Value> = gates["gates"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|g| g["result"] == "reported")
+        .collect();
+    if reported.is_empty() {
+        return;
+    }
+    s.push("Checks that only report found this at the gates. Read it as a map of what the tests may leave unchecked, never as findings: a survivor is a finding only where a scenario of the brief asks for that behavior and no sealed test catches it, and then it goes back to whoever wrote the checks, cited as any finding.".into());
+    for g in reported {
+        s.push(format!(
+            "- {}: `{}`; last lines: {}",
+            str_of(g, "check"),
+            str_of(g, "command"),
+            output_tail(str_of(g, "tail"), 600)
+        ));
     }
 }
 
