@@ -55,7 +55,7 @@ Check every flag in the scanner's own help before you write it. Then try the com
 
 ## What isn't in the minimum, and why
 
-- **Mutation testing.** It shows whether the tests catch planted bugs, and it costs minutes on every run. It comes when the tests proved weak: a reviewer found one that passed without its behavior, or a failure got past tests that ran its lines.
+- **Mutation testing,** the software form of a check of planted faults. It shows whether the tests catch planted bugs, and it costs minutes on every run. It comes when the tests proved weak: a reviewer found one that passed without its behavior, which `gdd metrics` counts by color as changes sent back to whoever wrote their checks, or a failure got past tests that ran its lines.
 - **A threshold of coverage.** How many lines ran says nothing about what was checked, and a change pays to reach the number. The tests of each change already follow its scenarios.
 - **Tests that drive a browser on every round.** They earn their place once the rest pass, before the review.
 

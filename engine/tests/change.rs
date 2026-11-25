@@ -1231,6 +1231,13 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     let rv = r.report("y7", "review", &review_text("fix", "yellow", found), &[]);
     assert_eq!(rv.code, 0, "{}", rv.out);
     assert_eq!(rv.facts["next"], "checks", "{}", rv.out);
+    // The metrics count the change as sent back to whoever wrote its checks, by its color.
+    let m = r.gdd(&["metrics", "--all", "--summary"]);
+    assert!(
+        m.has("reviewed changes sent back to whoever wrote their checks: yellow 1 of 1"),
+        "{}",
+        m.out
+    );
     let early = r.report("y7", "build", &report_block("gdd-build", "done"), &[]);
     assert_eq!(early.facts["refused"], "out-of-order", "{}", early.out);
     // The checks role is told what the reviewer found: a better check is its to write.

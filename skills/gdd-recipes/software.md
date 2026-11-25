@@ -26,6 +26,10 @@ Many tests at the bottom, fewer in the middle and a few at the top. Where the in
 
 The shape to avoid is the inverted one: many end-to-end tests and few below them. They are slow, they fail at random, a failure doesn't say which rule broke, and on red each one has to be seen passing on a throwaway version of the whole product, where a unit test needs one of a single function.
 
+## When the tests come back weak
+
+In software, the check of planted faults that hardening proposes is mutation testing: a tool makes small wrong versions of what the change adds, one at a time, and each one the tests don't catch is a hollow test. It judges only what changed between `<start>` and the head, runs once before the review, and starts at the tool's own default, looked up on its own page. A wrong version that survives fails the gates before any reviewer reads the change. Its minutes run on every change of that color, so it comes in where the project's own figures ask for it.
+
 ## Signs a test sits at the wrong level
 
 - An end-to-end test that checks a number, a message or a rule: that part is a unit test, and the end-to-end one keeps only the wiring.

@@ -225,6 +225,9 @@ fn a_color_that_rose_comes_before_the_findings_about_a_check() {
     let n = r.gdd(&["next", "y8"]);
     assert_eq!(n.facts["state"]["next"]["step"], "brief", "{}", n.out);
     assert!(n.has("the reviewer found red, higher than yellow"), "{}", n.out);
+    // Its color rose, so it goes back to Brief: no review sent it back to whoever wrote its checks.
+    let m = r.gdd(&["metrics", "--all", "--summary"]);
+    assert!(!m.has("sent back to whoever wrote their checks"), "{}", m.out);
 }
 
 #[test]

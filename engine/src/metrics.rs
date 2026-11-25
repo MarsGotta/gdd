@@ -598,6 +598,7 @@ fn change_row(
     let waivers = events.iter().filter(|(_, v)| kind(v) == "waiver").count();
     let extra = vec![
         ("waivers", json!(waivers)),
+        ("reviews_to_checks", reviews_to_checks(id, events)),
         ("asks", json!(n.asks)),
         ("asks_answered", json!(n.asks_answered)),
         ("gates_runs", json!(n.gates_runs)),
@@ -781,6 +782,7 @@ pub fn summary(t: &Tables) -> Vec<String> {
     ));
     work_lines(&mut out, t, &changes);
     gates_lines(&mut out, t, &changes);
+    weak_checks_lines(&mut out, &changes);
     check_evidence(&mut out, t);
     hardening_lines(&mut out, t);
     ask_lines(&mut out, t);
@@ -1080,6 +1082,53 @@ fn close_lines(out: &mut Vec<String>, changes: &[&Row]) {
         verdicts[0],
         verdicts[1],
         verdicts[2]
+    ));
+}
+
+/// The reviews that sent a change back to whoever wrote its checks, because a finding named a
+/// sealed check, leaving out those whose color rose, which go back to Brief (decision 134). A setup
+/// log has no brief to compare with: null.
+fn reviews_to_checks(id: &str, events: &[(usize, &Value)]) -> Value {
+    if log_kind(id) != LogKind::Change {
+        return Value::Null;
+    }
+    let mut briefed: Option<&str> = None;
+    let mut n = 0;
+    for (_, v) in events {
+        match step(v) {
+            "brief" => briefed = v["color"]["color"].as_str().or(briefed),
+            "review" if matches!(v["fix_role"].as_str(), Some("checks" | "checks-then-build")) => {
+                let found = v["color"]["color"].as_str();
+                let rose = matches!((briefed, found), (Some(b), Some(c)) if crate::color_rank(c) > crate::color_rank(b));
+                n += usize::from(!rose);
+            }
+            _ => {}
+        }
+    }
+    json!(n)
+}
+
+/// The changes of each color whose review sent them back to whoever wrote their checks: where
+/// that keeps happening, hardening proposes a check of planted faults for the color.
+fn weak_checks_lines(out: &mut Vec<String>, changes: &[&Row]) {
+    let mut by_color: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+    for r in changes.iter().filter(|r| r["reviews"].as_u64().unwrap_or(0) > 0) {
+        let n = by_color
+            .entry(r["color"].as_str().unwrap_or("none"))
+            .or_default();
+        n.0 += 1;
+        n.1 += usize::from(r["reviews_to_checks"].as_u64().unwrap_or(0) > 0);
+    }
+    if by_color.values().all(|(_, back)| *back == 0) {
+        return;
+    }
+    let each: Vec<String> = by_color
+        .iter()
+        .map(|(color, (reviewed, back))| format!("{color} {back} of {reviewed}"))
+        .collect();
+    out.push(format!(
+        "reviewed changes sent back to whoever wrote their checks: {}",
+        each.join(", ")
     ));
 }
 

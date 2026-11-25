@@ -43,6 +43,7 @@ The schema is `gdd-metrics/1`. A column that can't be known is `null` (empty in 
 | waivers, asks, asks_answered | count | events of the log |
 | gates_runs, gates_first_try | count, bool | the first `gates` step passed |
 | reviews, review_first_try | count, bool | the first `review` said `pass` |
+| reviews_to_checks | count or null | reviews that sent the change back to whoever wrote its checks because a finding named a sealed check (`fix_role` `checks` or `checks-then-build`), leaving out those whose color rose, which go back to Brief. Null for a setup log |
 | ended | `shipped`, `stopped` or `open` | a `ship` step; or a next step stopped for a reason other than waiting for the person |
 | close | `waiting`, `quiet`, `closed` or null | once it shipped: it waits for a person's verdict; it promised nothing and its days in the blueprint's `closing.days` haven't gone by; or a `yes` or a `no` closed it, or it closed by itself. Null before the ship |
 | undone | commit, `false` or null | the commit of the main branch that reverted what it shipped, by the line `git revert` writes for the commit its gates passed on, the `head` or the `in` of its `ship` step, or the merge that brought one of them in; `false` when git was read and holds none; null before it ships and when git couldn't be read |
