@@ -169,7 +169,7 @@ fn the_layer_knows_which_part_it_launched() {
     let script = r.dir.path().join("reader.sh");
     std::fs::write(
         &script,
-        "#!/bin/sh\nprintf 'pass\\nCOLOR: red\\n```gdd-report\\nskill: gdd-review 0.21.3\\nresult: pass\\ncaught: none\\npart: spare\\n```\\n'\n",
+        "#!/bin/sh\nprintf 'pass\\nCOLOR: red\\n```gdd-report\\nskill: gdd-review 0.21.4\\nresult: pass\\ncaught: none\\npart: spare\\n```\\n'\n",
     )
     .unwrap();
     let command = format!("sh {} <model> <prompt file>", script.display());

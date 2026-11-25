@@ -4,7 +4,7 @@ description: Writes and seals the cases of a change in Gate-Driven Development (
 license: MIT
 user-invocable: false
 metadata:
-  version: "0.21.3"
+  version: "0.21.4"
   contract: gdd/1
 ---
 
@@ -111,7 +111,7 @@ End your last message with this block, filled in. `result` is `sealed` or `stopp
 Many scenarios are no reason to stop: write and seal them one after another, and stop only on one you can't check, naming it by its `@id`, or naming the file you need. The layer refuses a stop that names neither. Don't read `gdd/log/` beyond a line your prompt names: what you need is in your prompt, and an earlier round's stop isn't yours.
 
 ```gdd-report
-skill: gdd-checks 0.21.3
+skill: gdd-checks 0.21.4
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```
