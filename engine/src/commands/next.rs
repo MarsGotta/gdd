@@ -142,7 +142,7 @@ pub fn next(ctx: &Ctx, id: Option<&str>) -> Out {
 fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
     let project = Project::open(&ctx.root);
     if !project.has_blueprint() {
-        out.say("there is no gdd/blueprint.md: the next moment is Prepare, with gdd-prepare");
+        out.say("there is no gdd/blueprint.md: the next moment is Prepare, with gdd-prepare. With your first proposal, ask the person what the gates should read, such as a design or a prototype to follow, documents or the MCP servers of their tools, before any prepare step: gdd ask blueprint --of context \"<the question, in a line>\"");
         out.fact("blueprint", "missing");
         return Ok(());
     }

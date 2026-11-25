@@ -3137,3 +3137,14 @@ fn the_blueprints_approval_waits_for_the_context_question() {
     let again = r.gdd(&["ask", "blueprint", "--of", "blueprint", "Do you approve it?"]);
     assert_eq!(again.code, 0, "{}", again.out);
 }
+
+/// Before there is a blueprint, the way to Prepare already names the question about what the
+/// gates should read, so the orchestrator asks it with its first proposal and not after a refusal.
+#[test]
+fn before_a_blueprint_next_names_the_context_question() {
+    let dir = tempfile::tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    let n = run_gdd(dir.path(), &["next"], &[]);
+    assert_eq!(n.facts["blueprint"], "missing", "{}", n.out);
+    assert!(n.has("gdd ask blueprint --of context"), "{}", n.out);
+}
