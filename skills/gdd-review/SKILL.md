@@ -4,7 +4,7 @@ description: Reviews a change in a Gate-Driven Development (GDD) project with a 
 license: MIT
 user-invocable: false
 metadata:
-  version: "0.21.1"
+  version: "0.21.2"
   contract: gdd/1
 ---
 
@@ -68,7 +68,7 @@ End your last message with this block, filled in. `result` is your verdict. If y
 Nothing comes before the verdict. Right above the gdd-report block, after the rest of your answer, give a json block with each command you ran: [{"command":"<command>","exit":0,"tail":"<its last lines>"}].
 
 ```gdd-report
-skill: gdd-review 0.21.1
+skill: gdd-review 0.21.2
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 closed:
