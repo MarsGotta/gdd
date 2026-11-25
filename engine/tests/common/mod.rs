@@ -385,6 +385,14 @@ impl Repo {
         self.gdd(&args)
     }
 
+    /// The person was asked what the gates should read, and answered, as preparing needs.
+    pub fn context_answered(&self) {
+        let asked = self.gdd(&["ask", "blueprint", "--of", "context", "Is there a design or a document the gates should read?"]);
+        assert_eq!(asked.code, 0, "{}", asked.out);
+        let answered = self.gdd(&["answer", "blueprint", "Nothing yet"]);
+        assert_eq!(answered.code, 0, "{}", answered.out);
+    }
+
     pub fn log_lines(&self, id: &str) -> Vec<Value> {
         self.read(&format!("gdd/log/{id}.jsonl"))
             .lines()

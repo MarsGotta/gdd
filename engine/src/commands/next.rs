@@ -201,6 +201,19 @@ fn show_blueprint_approval(project: &Project, bp: &Blueprint, out: &mut Out) {
         ));
         out.fact("levels_answer", words);
     }
+    // What the gates read is asked once, when preparing: a project prepared before that hears it
+    // here, before its next change is briefed (decision 133).
+    match events::context_answer(&entries) {
+        Some(words) => {
+            out.say(format!(
+                "the person's answer about what the gates should read: {words}"
+            ));
+            out.fact("context_answer", words);
+        }
+        None => out.say(
+            "nobody has asked the person what the gates should read, such as a design or a prototype to follow, documents or the MCP servers of their tools: ask them once, with gdd ask blueprint --of context, and if they give something, gdd-prepare adds it to the blueprint before the next brief",
+        ),
+    }
     let approvals: Vec<&Value> = log::events(&entries)
         .into_iter()
         .map(|(_, v)| v)

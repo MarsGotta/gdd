@@ -1533,6 +1533,7 @@ fn hardening_keeps_the_catches_and_cost_of_a_reduction() {
 #[test]
 fn the_orchestrators_own_steps() {
     let r = Repo::new();
+    r.context_answered();
     let p = r.gdd(&[
         "step",
         "blueprint",
@@ -1583,7 +1584,11 @@ fn the_orchestrators_own_steps() {
         "q2",
     ]);
     assert_eq!(e.code, 0, "{}", e.out);
-    let lines = r.log_lines("blueprint");
+    let lines: Vec<Value> = r
+        .log_lines("blueprint")
+        .into_iter()
+        .filter(|e| e["event"] == "step")
+        .collect();
     assert_eq!(lines[0]["report"]["skill"], "gdd-prepare");
     assert_eq!(lines[0]["report"]["result"], "proposed");
     assert_eq!(

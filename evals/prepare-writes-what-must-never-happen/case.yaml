@@ -15,6 +15,7 @@ execution:
     - I work only from Claude Code. Use haiku for the light level, sonnet for the standard one and opus for the deep one.
     - There's no platform and no CI, and I don't want them yet: a change ships when its branch is merged into main.
     - We have no history to take a baseline from. Keep the usual limits, and nothing may be skipped in an emergency.
+    - There's no design, prototype or document for the gates to follow, and no MCP server.
 
     Propose whatever is left yourself, write the files and show me the blueprint to approve. Don't stop to ask me before that.
 context:

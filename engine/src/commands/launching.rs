@@ -386,10 +386,33 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
                     "If you pass it, a person approves this change after you: leave them evidence. If it changes what someone sees, screenshots at <start> and on the change, at desktop and mobile width, or a short video of the flow; if it has no screen, the same input with its output at <start> and on the change. Save it in {}, and list it under EVIDENCE:, a line per file with its path and what it shows; a blank line ends the list. If you can't make it, say why there. Missing evidence is no finding.",
                     root.join(".gdd/evidence").join(id).display()
                 ));
+            } else if !context_of_zones(l).is_empty() {
+                // A rule that compares the change with a design is answered by looking, on any
+                // color, and the person sees what the reviewer saw (decision 133).
+                s.push(format!(
+                    "If a rule of a zone asks you for screenshots, save them in {}.",
+                    root.join(".gdd/evidence").join(id).display()
+                ));
             }
         }
         _ => {}
     }
+}
+
+/// The context the blueprint gives the zones the change touches, as `<kind> <name>`.
+fn context_of_zones(l: &Loaded) -> Vec<String> {
+    let zones = &l.state.progress.zones;
+    l.bp.context()
+        .into_iter()
+        .filter(|c| {
+            c.targets.iter().any(|t| {
+                zones
+                    .iter()
+                    .any(|z| t == z || t.starts_with(&format!("{z}/")))
+            })
+        })
+        .map(|c| format!("{} {}", c.kind, c.name))
+        .collect()
 }
 
 /// A command can leave its whole diagnostic on one long line.
@@ -658,19 +681,7 @@ fn prompt_for(
             "Copy this line into your gdd-report block: reviewed: {stamp}"
         ));
     }
-    let zones: Vec<String> = p.zones.clone();
-    let ctx_files: Vec<String> =
-        l.bp.context()
-            .into_iter()
-            .filter(|c| {
-                c.targets.iter().any(|t| {
-                    zones
-                        .iter()
-                        .any(|z| t == z || t.starts_with(&format!("{z}/")))
-                })
-            })
-            .map(|c| format!("{} {}", c.kind, c.name))
-            .collect();
+    let ctx_files = context_of_zones(l);
     if !ctx_files.is_empty() {
         s.push(format!(
             "The context the blueprint gives its gates: {}.",

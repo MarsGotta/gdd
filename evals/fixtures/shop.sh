@@ -799,6 +799,8 @@ chmod 755 .gdd/gdd
 # The project was prepared and its standing checks were set up and tried: the log says so.
 mkdir -p gdd/log
 {
+  printf '{"contract":"gdd/1","ts":"2026-11-01T08:50:00Z","brief":"blueprint","event":"ask","of":"context","what":"Is there a design, a prototype or a document the gates should follow?"}\n'
+  printf '{"contract":"gdd/1","ts":"2026-11-01T08:55:00Z","brief":"blueprint","event":"answer","of":"context","what":"No, nothing for now","ask":1}\n'
   printf '{"contract":"gdd/1","ts":"2026-11-01T09:00:00Z","brief":"blueprint","event":"step","step":"prepare","report":{"skill":"gdd-prepare","version":"0.2.0","level":"deep","round":1,"result":"approved","caught":"none","seconds":null,"tokens":null},"files":["gdd/blueprint.md","gdd/constitution.md","gdd/backlog.md"],"probe":[{"try":"push to the main branch","command":"git push origin main","exit":0,"tail":"there is no platform: nothing stops it"}]}\n'
   printf '{"contract":"gdd/1","ts":"2026-11-01T09:30:00Z","brief":"blueprint","event":"approval","who":"Mar","of":"blueprint","version":1,"files":{},"where":"commit"}\n'
 } > gdd/log/blueprint.jsonl

@@ -176,7 +176,10 @@ pub fn step_cmd(ctx: &Ctx, id: &str, st: &str, a: &StepArgs) -> Out {
             obj(vec![("step", json!(st))]),
         );
         match st {
-            "prepare" => prepare_fields(ctx, a, &mut ev)?,
+            "prepare" => {
+                super::events::context_asked(&l)?;
+                prepare_fields(ctx, a, &mut ev)?
+            }
             "harden" => harden_fields(a, &mut ev)?,
             "exam" => exam_fields(a, &mut ev)?,
             _ => return Err(Fail::usage("the step is prepare, harden or exam")),

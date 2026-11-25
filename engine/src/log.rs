@@ -244,7 +244,7 @@ pub const STEPS: [&str; 10] = [
     "prepare", "reading", "brief", "checks", "build", "gates", "review", "ship", "harden", "exam",
 ];
 pub const APPROVAL_OF: [&str; 5] = ["brief", "change", "blueprint", "gates", "debt"];
-pub const ASK_OF: [&str; 10] = [
+pub const ASK_OF: [&str; 11] = [
     "brief",
     "change",
     "blueprint",
@@ -253,6 +253,7 @@ pub const ASK_OF: [&str; 10] = [
     "waiver",
     "decision",
     "levels",
+    "context",
     "stop",
     "close",
 ];

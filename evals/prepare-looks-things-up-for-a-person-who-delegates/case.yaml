@@ -10,7 +10,7 @@ execution:
   prompt: |
     I'm not technical. This is my shop for cat products, and it's going to take card payments. I want to work on it with GDD from now on, so prepare it.
 
-    Decide the technical things yourself: I can't judge them. Someone told me to ask for mutation testing on the delicate changes, so add that. There's no platform and no CI, and I don't want them yet. I work only from Claude Code: use haiku, sonnet and opus for the three levels, and the same three for the reviewer.
+    Decide the technical things yourself: I can't judge them. Someone told me to ask for mutation testing on the delicate changes, so add that. There's no platform and no CI, and I don't want them yet. I work only from Claude Code: use haiku, sonnet and opus for the three levels, and the same three for the reviewer. I have no design or documents for you to follow.
 
     Write the files and show me what I have to approve. Don't stop to ask me before that.
 context:

@@ -65,7 +65,7 @@ Use `assets/brief.md`, in this skill's folder, never an older brief as the model
   - the reference documents of anything it adds, such as an error code, a setting or a command.
   Never the sealed checks or `gdd/`: those aren't the builder's. Check that each path, or its folder, exists. If you can launch agents, give this search to one that only reads and keep its list: the files it opens don't belong in your context.
 - **Scenarios it contradicts.** Search `features/` and the tests for the behavior the request changes. If a rule or scenario in `features/` says the opposite, change it and say so in the brief, because that changes what has to pass.
-- **Gates.** The change's own scenarios, the standing gates of every zone it touches and the checks its color asks for, each with the context the blueprint gives it.
+- **Gates.** The change's own scenarios, the standing gates of every zone it touches and the checks its color asks for, each with the context the blueprint gives it. On yellow and red, if it changes what a person sees and no context reaches that, ask once for a design or prototype (`--of context`), apart from product questions, unless their answer in `gdd next` says there is none. If they give one, `gdd-prepare` adds it to that zone first.
 - **What connects it.** If it builds a part, say which item of the backlog it serves and what will put it in use, and set that item to `briefed` with `gdd backlog briefed <item> --brief <id>`.
 
 ## Assumptions and open questions

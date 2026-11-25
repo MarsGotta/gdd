@@ -2773,6 +2773,7 @@ fn an_open_blueprint_question_hands_off_to_its_answer() {
 #[test]
 fn a_proposed_blueprint_never_hands_off_as_done() {
     let r = Repo::new();
+    r.context_answered();
     let proposed = r.gdd(&[
         "step",
         "blueprint",
@@ -3064,4 +3065,75 @@ fn a_change_above_green_needs_its_brief_and_scenarios() {
     );
     // Green needs none.
     assert_eq!(r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code, 0);
+}
+
+/// Preparing asks the person what the gates should read, a design, a prototype, documents or the
+/// MCP servers of their tools, before the blueprint is proposed or approved. Nothing is an answer.
+#[test]
+fn preparing_asks_what_the_gates_should_read() {
+    let r = Repo::new();
+    let propose = || {
+        r.gdd(&[
+            "step",
+            "blueprint",
+            "prepare",
+            "--result",
+            "proposed",
+            "--file",
+            "gdd/blueprint.md",
+        ])
+    };
+    let approve = || {
+        r.gdd(&[
+            "approve",
+            "blueprint",
+            "--of",
+            "blueprint",
+            "--who",
+            "Person",
+            "--where",
+            "conversation",
+            "gdd/blueprint.md",
+        ])
+    };
+    assert!(r.gdd(&["next"]).has("nobody has asked the person what the gates should read"));
+    let unasked = propose();
+    assert_eq!(unasked.facts["refused"], "context-unasked", "{}", unasked.out);
+    assert!(unasked.has("gdd ask blueprint --of context"), "{}", unasked.out);
+    assert_eq!(approve().facts["refused"], "context-unasked");
+    // Asked and not answered yet: their answer comes first.
+    let asked = r.gdd(&["ask", "blueprint", "--of", "context", "Is there a design to follow?"]);
+    assert_eq!(asked.code, 0, "{}", asked.out);
+    assert!(asked.has("gdd answer blueprint"), "{}", asked.out);
+    let waiting = propose();
+    assert_eq!(waiting.facts["refused"], "needs-person", "{}", waiting.out);
+    // Having nothing is an answer.
+    assert_eq!(r.gdd(&["answer", "blueprint", "No, nothing"]).code, 0);
+    let next = r.gdd(&["next"]);
+    assert!(next.has("the person's answer about what the gates should read: No, nothing"), "{}", next.out);
+    assert_eq!(next.facts["context_answer"], "No, nothing", "{}", next.out);
+    assert_eq!(propose().code, 0);
+    let yes = approve();
+    assert_eq!(yes.code, 0, "{}", yes.out);
+    let v = r.gdd(&["verify", "blueprint"]);
+    assert_eq!(v.facts["errors"], 0, "{}", v.out);
+}
+
+/// The approval of the blueprint waits for what the gates should read: it can't be asked first,
+/// and one asked before this rule existed gives way to that question instead of blocking it.
+#[test]
+fn the_blueprints_approval_waits_for_the_context_question() {
+    let r = Repo::new();
+    let early = r.gdd(&["ask", "blueprint", "--of", "blueprint", "Do you approve it?"]);
+    assert_eq!(early.facts["refused"], "context-unasked", "{}", early.out);
+    // A log from before, with the approval asked and still waiting.
+    r.write(
+        "gdd/log/blueprint.jsonl",
+        "{\"contract\":\"gdd/1\",\"ts\":\"2026-11-01T09:00:00Z\",\"brief\":\"blueprint\",\"event\":\"ask\",\"of\":\"blueprint\",\"what\":\"Do you approve it?\"}\n",
+    );
+    let context = r.gdd(&["ask", "blueprint", "--of", "context", "Is there a design to follow?"]);
+    assert_eq!(context.code, 0, "{}", context.out);
+    assert_eq!(r.gdd(&["answer", "blueprint", "Here is the design"]).code, 0);
+    let again = r.gdd(&["ask", "blueprint", "--of", "blueprint", "Do you approve it?"]);
+    assert_eq!(again.code, 0, "{}", again.out);
 }

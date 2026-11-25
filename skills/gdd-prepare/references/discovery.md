@@ -4,7 +4,7 @@ For when the person isn't sure yet what they want to make, or says so. It is the
 
 An idea in one line from someone who knows what they want is not this. Fill the five lines from it, as `new-project.md` says, and propose.
 
-It is a conversation, and it should feel like one. Its questions are talk and not decisions of the method: they need no `gdd ask`, and they don't have to be answerable with a yes. The first thing the method records is the approval of the blueprint.
+It is a conversation, and it should feel like one. Its questions are talk and not decisions of the method: they need no `gdd ask`, and they don't have to be answerable with a yes. The first things the method records are what the gates should read, asked with the first proposal, and then the approval of the blueprint.
 
 - **Let them tell it their way first.** Invite them to pour it all out, in any order, and listen for what they care about most.
 - **Then one question at a time,** and only those whose answer would change what gets made. While you don't yet know what they want it for, ask openly, with no answers attached. Once you do, offer two or three ways it could go and say which one you'd take and why.

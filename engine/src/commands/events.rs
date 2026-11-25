@@ -128,6 +128,21 @@ pub(super) fn levels_answer<'a>(entries: &'a [Entry], bp: &Blueprint) -> Option<
     answer["what"].as_str()
 }
 
+/// What the person said the gates should read, in their words, from the last answered question.
+pub(super) fn context_answer(entries: &[Entry]) -> Option<&str> {
+    let events = log::events(entries);
+    events
+        .iter()
+        .rev()
+        .filter(|(_, v)| log::kind(v) == "ask" && v["of"] == "context")
+        .find_map(|(line, _)| {
+            events.iter().find(|(_, v)| {
+                log::kind(v) == "answer" && v["ask"].as_u64() == Some(*line as u64)
+            })
+        })
+        .and_then(|(_, answer)| answer["what"].as_str())
+}
+
 fn check_levels_question(l: &Loaded, id: &str) -> R<()> {
     if id != "blueprint" {
         return Err(Fail::usage(
@@ -156,13 +171,39 @@ fn check_levels_question(l: &Loaded, id: &str) -> R<()> {
     Ok(())
 }
 
+/// Before the blueprint is proposed or approved, the person was asked what its gates should read:
+/// a design or a prototype to follow, documents, the MCP servers of their tools. Having nothing is
+/// an answer too; going without asking isn't.
+pub(super) fn context_asked(l: &Loaded) -> R<()> {
+    let asks = &l.state.progress.asks;
+    if asks.iter().any(|a| a.of == "context" && a.answered) {
+        return Ok(());
+    }
+    let open = asks
+        .last()
+        .is_some_and(|a| a.of == "context" && a.ended_by.is_none());
+    Err(Fail::refuse(
+        if open { "needs-person" } else { "context-unasked" },
+        "the person hasn't said what the gates should read: a design or a prototype to follow, documents, the MCP servers of their tools",
+        if open {
+            "record their answer, even if they have nothing: gdd answer blueprint \"<their words>\"".to_string()
+        } else {
+            "ask them once, in their words: gdd ask blueprint --of context \"<the question, in a line>\". Then record their answer, even if they have nothing: gdd answer blueprint \"<their words>\"".to_string()
+        },
+    ))
+}
+
 fn check_question(l: &Loaded, id: &str, of: &str) -> R<()> {
     let p = &l.state.progress;
     let kind = log_kind(id);
     check_kind(l, id, of, kind)?;
     // One question at a time in a log: another kind would end the first without an answer.
-    // The same kind asked again takes its place.
-    match p.open_ask().filter(|a| a.of != of) {
+    // The same kind asked again takes its place, and so does what the gates should read, which
+    // the approval of the blueprint waits for.
+    match p
+        .open_ask()
+        .filter(|a| a.of != of && !(of == "context" && a.of == "blueprint"))
+    {
         Some(open) => Err(Fail::refuse(
             "one-question",
             format!(
@@ -182,6 +223,7 @@ fn check_kind(l: &Loaded, id: &str, of: &str, kind: LogKind) -> R<()> {
     let p = &l.state.progress;
     match of {
         "levels" => check_levels_question(l, id),
+        "blueprint" if kind == LogKind::Blueprint => context_asked(l),
         "decision" | "waiver" if p.open_ask().is_some_and(|a| a.spent_limit) => Err(Fail::refuse(
             "needs-person",
             "one question about the spent limit is already waiting",
@@ -371,6 +413,9 @@ pub fn approve(ctx: &Ctx, id: &str, a: &Approval) -> Out {
             )));
         }
         let l = load(ctx, id)?;
+        if a.of == "blueprint" {
+            context_asked(&l)?;
+        }
         // A change is approved as it was judged: its files as its judged head holds them, which
         // the orchestrator's copy, on the main branch, may not have at all.
         let judged = (a.of == "change")

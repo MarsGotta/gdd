@@ -352,6 +352,8 @@ fn no_question_about_a_brief_before_there_is_one() {
         let id = format!("n-{of}");
         assert_eq!(r.gdd(&["ask", &id, "--of", of, "Two decimals?"]).code, 0);
     }
+    // The approval of the blueprint comes after what its gates should read.
+    r.context_answered();
     assert_eq!(
         r.gdd(&[
             "ask",

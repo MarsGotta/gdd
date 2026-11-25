@@ -1053,3 +1053,30 @@ fn no_agent_is_named_from_another_environment_or_where_the_blueprint_says_how() 
     assert!(reading.facts["agent"].is_null(), "{}", reading.out);
     assert!(!reading.has("gdd-read"), "{}", reading.out);
 }
+
+/// Where the blueprint gives a zone of the change a design or another reference, its reviewer
+/// hears where the screenshots a rule asks for go, on any color, so the person sees them too.
+#[test]
+fn a_reviewer_of_a_zone_with_context_knows_where_screenshots_go() {
+    let design = "context:\n  - file: gdd/context/design.md\n    for: [ui]";
+    for (context, says) in [("context: []", false), (design, true)] {
+        let r = Repo::with(&BLUEPRINT.replace("context: []", context));
+        r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);
+        let base = r.git(&["rev-parse", "main"]);
+        r.commit_on("work/g1", Some(&base), &[("src/ui/page.txt", "p\n")], "Page");
+        r.report("g1", "build", &report_block("gdd-build", "done"), &[]);
+        assert_eq!(r.gdd(&["gates", "g1"]).code, 0);
+        let review = r.gdd(&["launch", "g1", "review"]);
+        let prompt = review.facts["prompt"].as_str().unwrap_or_default();
+        assert_eq!(
+            prompt.contains("asks you for screenshots, save them in"),
+            says,
+            "{prompt}"
+        );
+        assert_eq!(
+            prompt.contains("The context the blueprint gives its gates: file gdd/context/design.md"),
+            says,
+            "{prompt}"
+        );
+    }
+}
