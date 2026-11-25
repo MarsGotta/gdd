@@ -62,6 +62,7 @@ What to look for:
 - **Per question:** what was asked where `kind` is `decision`, in `what` of `asks`. The same one in several changes is a question the project hasn't answered where agents read. An approval or a close is asked every time by design.
 - **Per approval:** the time from its `ask`. One that comes seconds later is approving blind, and one that waits for hours means nobody was told.
 - **Per change:** the time from its first event to its `ship`, and how many times it asked for a person.
+- **Per limit:** each cap's `_used`, `_allowed` and `_raised` in `changes`, by color. When the person keeps raising the same cap of a color with a waiver, the blueprint's value is too low for what that color takes here: propose the value those changes needed. Like any change to the blueprint, the person approves it.
 - **Per reviewer:** how many of its findings ended as `false` or `minor`, in `findings`. That is its noise.
 - **Per level:** a `model` in a report that is neither a name its level has in the blueprint's `levels`, in any environment or under `reviewer`, nor the model a `prepare` step saw that name launch. That role ran on something else: tell the person.
 - **Per round:** if an agent gives up or disputes the same thing every time, or the reviewer takes long to pass a change, the brief or the checks are wrong.

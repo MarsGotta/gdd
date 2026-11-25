@@ -867,7 +867,7 @@ fn say_by_hand(
     id: &str,
     role: &str,
     model: &str,
-    prompt: &str,
+    (prompt, prompt_file): (&str, &Path),
     launch_text: Option<&str>,
     run: bool,
 ) -> R<()> {
@@ -879,6 +879,10 @@ fn say_by_hand(
     for line in prompt.lines() {
         out.say(format!("  {line}"));
     }
+    out.say(format!(
+        "prompt: {}, the same prompt as it is: pass it whole, unchanged",
+        prompt_file.display()
+    ));
     out.say(format!(
         "then: gdd report {id} {role} <its last message, a file or ->"
     ));
@@ -1074,6 +1078,10 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         out.fact("level", json!(level));
         out.fact("model", json!(model));
         out.fact("prompt", json!(prompt));
+        let runs = runs_dir(&ctx.root, id, role, out)?;
+        let prompt_file = runs.join("prompt.txt");
+        crate::runs::write_new(&prompt_file, prompt.as_bytes())
+            .map_err(|e| crate::out::io(&prompt_file, e))?;
         let Some(template) = template else {
             if returned {
                 out.say(format!(
@@ -1085,7 +1093,7 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
                 id,
                 role,
                 &model,
-                &prompt,
+                (&prompt, &prompt_file),
                 launch_text.as_deref(),
                 a.run,
             );
@@ -1097,10 +1105,6 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
             }
             return said;
         };
-        let runs = runs_dir(&ctx.root, id, role, out)?;
-        let prompt_file = runs.join("prompt.txt");
-        crate::runs::write_new(&prompt_file, prompt.as_bytes())
-            .map_err(|e| crate::out::io(&prompt_file, e))?;
         let argv = launch::argv(&template, &model, &prompt, &prompt_file.to_string_lossy())
             .map_err(Fail::usage)?;
         let shown: Vec<String> = argv

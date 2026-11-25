@@ -30,8 +30,8 @@ What `gdd next` doesn't hand you:
 | When | Run |
 |---|---|
 | You send the person a question | `gdd ask <id> --of <brief, change, blueprint, waiver, decision, levels, stop or close> "<the question, in a line>"`, at that moment. It prints what records their answer |
-| A role is next | `gdd launch <id> <role> --run` runs a fresh role and records it. For manual launches or finding destinations, omit `--run` and use the given model and prompt |
-| A manually launched role ends | `gdd report <id> <step> <file>`, its last message whole in the file: `--model`, `--seconds`, `--tokens` and `--tokens-read` when measured, `--closed f1=fixed` for findings a later round settles |
+| A role is next | `gdd launch <id> <role> --run` runs a fresh role and records it. For manual launches or finding destinations, omit `--run` and use the given model and the prompt file it names, unchanged |
+| A manually launched role ends | `gdd report <id> <step> <file>`, its last message whole in the file or on standard input with `-`: `--model`, `--seconds`, `--tokens` and `--tokens-read` when measured, `--closed f1=fixed` for findings a later round settles |
 | Something is left for later | `gdd backlog add <item> --what "<what the person gets>" --color <color>` |
 | Your own `prepare`, `harden` or `exam` | `gdd step blueprint <that step>`, with the flags its skill gives |
 | A line of a log is wrong | `gdd correct <id> --line <n> "<what was wrong>"`, with `--void` when it must not count |

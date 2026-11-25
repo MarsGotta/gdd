@@ -120,7 +120,7 @@ Every change gets the color of the most delicate thing it touches, and the color
 | Something yellow | A filter in the catalog | You approve what it has to do, in a short message, before anyone builds |
 | Something red | Anything that moves money | You approve what it has to do, and you review the change at the end |
 
-**What you approve.** On yellow and red, before anyone builds, your agent sends you the rules of the change in under 150 words, or 200 on red, in whole sentences: each new or changed rule, its own assumptions marked as its own, what it took as true without checking, how you'll know it helped, and the file where you can read the cases. For the size filter it could say:
+**What you approve.** On yellow and red, before anyone builds, your agent sends you the rules of the change in under 200 words, or 250 on red, unless you ask for more detail, in whole sentences: each new or changed rule, its own assumptions marked as its own, what it took as true without checking, how you'll know it helped, and the file where you can read the cases. For the size filter it could say:
 
 > You'll see only the products that come in the size you pick.
 >

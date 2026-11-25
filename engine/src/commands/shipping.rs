@@ -347,6 +347,8 @@ impl Aside {
     fn take(ctx: &Ctx, id: &str, tip: &str, out: &mut Out) -> R<Aside> {
         let mut files: Vec<String> = vec![];
         let mut pending: Vec<String> = vec![];
+        let in_tip = git::blobs_at(&ctx.root, tip)
+            .map_err(|e| Fail::missing(format!("the files of {}", git::short(tip)), e))?;
         for (x, y, path) in status_entries(&ctx.root)? {
             let untracked = x == '?' && y == '?';
             if !untracked && x != ' ' {
@@ -360,7 +362,7 @@ impl Aside {
                 continue;
             }
             if untracked {
-                match git::blob_at(&ctx.root, tip, &path) {
+                match in_tip.get(&path) {
                     Some(b)
                         if git::hash_object(&ctx.root, &path).ok().as_deref()
                             == Some(b.as_str()) =>

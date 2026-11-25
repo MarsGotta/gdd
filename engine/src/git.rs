@@ -188,6 +188,28 @@ pub fn blob_at(root: &Path, commit: &str, path: &str) -> Option<String> {
     rev_parse(root, &format!("{commit}:{path}"))
 }
 
+/// Every file of a commit with its blob, from one `git ls-tree`: asking `blob_at` for each of
+/// thousands of paths is thousands of processes.
+pub fn blobs_at(root: &Path, commit: &str) -> Result<BTreeMap<String, String>, String> {
+    let args = ["ls-tree", "-r", "-z", "--full-tree", "--end-of-options", commit];
+    let o = run(root, &args)?;
+    if !o.status.success() {
+        return Err(format!(
+            "git {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&o.stderr).trim()
+        ));
+    }
+    Ok(z_list(&o.stdout)
+        .into_iter()
+        .filter_map(|e| {
+            let (meta, path) = e.split_once('\t')?;
+            let blob = meta.split(' ').nth(2)?;
+            Some((path.to_string(), blob.to_string()))
+        })
+        .collect())
+}
+
 /// The parents of a commit, the first one first.
 pub fn parents(root: &Path, commit: &str) -> Vec<String> {
     out(

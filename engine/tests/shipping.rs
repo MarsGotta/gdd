@@ -1990,3 +1990,42 @@ fn only_case_checks_selected_for_the_color_and_planned_paths_need_proofs() {
     );
     assert!(missing.has("rejects proof for tests"));
 }
+
+/// A checkout full of untracked files a project hasn't ignored yet, such as a fresh
+/// `node_modules`, costs a local merge a few calls to git, not one for each file.
+#[test]
+fn a_local_merge_asks_git_once_for_what_the_change_holds() {
+    let r = tracked_logs_repo();
+    two_green_changes(&r);
+    let many = 400;
+    for i in 0..many {
+        r.write(&format!("node_modules/pkg/f{i}.js"), "x\n");
+    }
+    let count = r.dir.path().join("git-calls");
+    let wrapper = r.dir.path().join("counting-git");
+    std::fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\necho x >> '{}'\nexec git \"$@\"\n",
+            count.display()
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let m = r.gdd_env(
+        &["ship", "ga", "--merge"],
+        &[("GDD_GIT", &wrapper.to_string_lossy())],
+    );
+    assert_eq!(m.code, 0, "{}", m.out);
+    let calls = std::fs::read_to_string(&count).unwrap().lines().count();
+    assert!(calls < many / 2, "{calls} calls to git for {many} untracked files");
+    // What the project hadn't ignored is still there, untouched.
+    assert_eq!(r.read("node_modules/pkg/f0.js"), "x\n");
+    assert_eq!(
+        r.git(&["status", "--porcelain"]),
+        "?? node_modules/",
+        "{}",
+        m.out
+    );
+}

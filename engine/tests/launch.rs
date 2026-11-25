@@ -422,6 +422,14 @@ fn launch_refuses_what_the_state_does_not_allow_yet() {
     assert!(prompt.contains("round 1 of build"), "{prompt}");
     assert!(prompt.contains(r#""failures":0"#), "{prompt}");
     assert!(prompt.contains("gdd-report"), "{prompt}");
+    // And the same prompt in a file, as it is, for whoever passes it to the role by hand.
+    let file = p
+        .out
+        .lines()
+        .find_map(|l| l.strip_prefix("prompt: "))
+        .and_then(|l| l.split(", the same prompt").next())
+        .unwrap_or_else(|| panic!("no prompt file: {}", p.out));
+    assert_eq!(std::fs::read_to_string(file).unwrap(), prompt);
 }
 
 /// A yellow change the person approved, waiting for its checks.
