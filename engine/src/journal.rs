@@ -151,7 +151,14 @@ fn attempts(journal: &str) -> impl Iterator<Item = Value> + '_ {
                 || (j["exit"].as_i64() == Some(1)
                     && !matches!(
                         j["refused"].as_str(),
-                        Some("resume-required" | "standing-checks" | "no-brief" | "one-question")
+                        Some(
+                            "resume-required"
+                                | "standing-checks"
+                                | "no-brief"
+                                | "one-question"
+                                | "parallel-full"
+                                | "paths-shared"
+                        )
                     )
                     && !matches!(
                         j["command"].as_str(),

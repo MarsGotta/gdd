@@ -22,6 +22,7 @@ use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+mod alongside;
 mod brief;
 mod closing;
 mod counting;

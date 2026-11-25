@@ -3155,3 +3155,51 @@ fn before_a_blueprint_next_names_the_context_question() {
     assert_eq!(n.facts["blueprint"], "missing", "{}", n.out);
     assert!(n.has("gdd ask blueprint --of context"), "{}", n.out);
 }
+
+/// With `parallel` in the blueprint, a change starts alongside the open ones while there is room
+/// and it shares no planned file with them; without it, nothing is held back.
+#[test]
+fn changes_run_alongside_while_they_share_no_file() {
+    // Without parallel, two changes on the same file both start, as before.
+    let r = Repo::new();
+    assert_eq!(r.gdd(&["brief", "a1", "--paths", "src/ui/a.txt"]).code, 0);
+    assert_eq!(r.gdd(&["brief", "a2", "--paths", "src/ui/a.txt"]).code, 0);
+
+    let r = Repo::with(&BLUEPRINT.replacen("contract: gdd/1\n", "contract: gdd/1\nparallel: 2\n", 1));
+    assert_eq!(r.gdd(&["brief", "g1", "--paths", "src/ui/a.txt"]).code, 0);
+    let next = r.gdd(&["next"]);
+    assert!(next.has("room for 1 more change at once: 1 open"), "{}", next.out);
+    // A change that would touch a file another open change plans to touch waits for it.
+    let preview = r.gdd(&["color", "--paths", "src/ui/a.txt"]);
+    assert!(preview.has("it shares src/ui/a.txt with the open change g1"), "{}", preview.out);
+    let shared = r.gdd(&["brief", "g2", "--paths", "src/ui/a.txt"]);
+    assert_eq!(shared.facts["refused"], "paths-shared", "{}", shared.out);
+    assert!(shared.has("gdd next g1"), "{}", shared.out);
+    // One that shares nothing starts alongside, and then there is no room for a third.
+    assert_eq!(r.gdd(&["brief", "g3", "--paths", "src/ui/b.txt"]).code, 0);
+    let full = r.gdd(&["brief", "g4", "--paths", "src/ui/c.txt"]);
+    assert_eq!(full.facts["refused"], "parallel-full", "{}", full.out);
+    // Waiting for room, tried again, is no question for the person: the change waits.
+    assert_eq!(r.gdd(&["brief", "g4", "--paths", "src/ui/c.txt"]).facts["refused"], "parallel-full");
+    let project = r.gdd(&["next"]);
+    assert!(project.has("no room for another change: 2 open"), "{}", project.out);
+    assert!(!project.has("refused twice"), "{}", project.out);
+    let waits = r.gdd(&["next", "g4"]);
+    assert_eq!(waits.facts["state"]["next"]["step"], "wait", "{}", waits.out);
+    // An open change's own preview says nothing about waiting for itself.
+    assert!(!r.gdd(&["color", "g1", "--paths", "src/ui/a.txt"]).has("it shares"));
+    // A folder collides with a file a change plans inside it, even one that doesn't exist yet.
+    let folder = r.gdd(&["color", "--paths", "src/ui"]);
+    assert!(folder.has("it shares src/ui with the open change g1"), "{}", folder.out);
+    // A change the person dropped makes room, and what waited for it can start.
+    assert_eq!(r.gdd(&["brief", "g1", "--stop", "They dropped it"]).code, 0);
+    let after = r.gdd(&["brief", "g2", "--paths", "src/ui/a.txt"]);
+    assert_eq!(after.code, 0, "{}", after.out);
+    // Taking the dropped change up again goes through the same hold.
+    let again = r.gdd(&["brief", "g1", "--paths", "src/ui/a.txt"]);
+    assert_eq!(again.facts["refused"], "parallel-full", "{}", again.out);
+
+    // A parallel that is no whole number from 1 on is a problem of the blueprint.
+    let bad = Repo::with(&BLUEPRINT.replacen("contract: gdd/1\n", "contract: gdd/1\nparallel: 0\n", 1));
+    assert!(bad.gdd(&["next"]).has("parallel is not a whole number of changes from 1 on"));
+}

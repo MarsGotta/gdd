@@ -42,7 +42,8 @@ What `gdd next` doesn't hand you:
 2. Read the request, in the person's words.
 3. Run `gdd next`. If it says the standing checks aren't set up, they come before the request: do it now, as `references/standing-checks.md` says, in this skill's folder. Don't ask whether to or offer to skip it: the person agreed to it with the blueprint. Nothing else under way comes before a request: what is stopped waits for the person, said in one line.
 4. The brief has no status. For a change under way, trust the layer and git.
-5. If the layer says git can't write a ref, stop and tell the person in one line, and no more: "I can't start: git can't write in this copy, so nothing was built. Open me where it can and I'll go on."
+5. While `gdd next` says there is room, another item can start alongside the open changes, each with its own roles: plan its paths with `gdd color <id> --paths`, and start it where it shares none. The person still hears one question at a time.
+6. If the layer says git can't write a ref, stop and tell the person in one line, and no more: "I can't start: git can't write in this copy, so nothing was built. Open me where it can and I'll go on."
 
 ## The five moments
 

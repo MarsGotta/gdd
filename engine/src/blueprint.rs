@@ -184,6 +184,14 @@ impl Blueprint {
         whole(&self.front["colors"][color]["readings"]) == Some(3)
     }
 
+    /// How many changes may be open at once, from `parallel`; none where the blueprint doesn't say,
+    /// and then the layer holds no change back for another (decision 135).
+    pub fn parallel(&self) -> Option<usize> {
+        whole(&self.front["parallel"])
+            .filter(|n| *n >= 1)
+            .map(|n| n as usize)
+    }
+
     pub fn color_level(&self, color: &str) -> Option<String> {
         s(&self.front["colors"][color]["level"])
     }
@@ -336,6 +344,10 @@ impl Blueprint {
             Some(crate::CONTRACT) => {}
             Some(other) => p.push(format!("its contract is {other}, not {}", crate::CONTRACT)),
             None => p.push("it names no contract".into()),
+        }
+        let parallel = &self.front["parallel"];
+        if !parallel.is_null() && self.parallel().is_none() {
+            p.push("parallel is not a whole number of changes from 1 on: no change is held back for another".into());
         }
         let closing = &self.front["closing"];
         if !closing.is_null() {

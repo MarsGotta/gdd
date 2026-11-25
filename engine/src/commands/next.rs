@@ -36,6 +36,12 @@ pub(super) fn load_next(ctx: &Ctx, id: &str) -> R<Loaded> {
         l.state.next = wait;
         return Ok(l);
     }
+    if l.state.next.step == "brief"
+        && let Some(wait) = super::alongside::no_room(ctx, &l.bp, id, &l.state.progress)
+    {
+        l.state.next = wait;
+        return Ok(l);
+    }
     // A step that seals, builds, judges or ships needs a git that can write.
     if ["brief", "checks", "build", "gates", "ship"].contains(&l.state.next.step.as_str())
         && git_writes(ctx).is_err()
@@ -173,6 +179,7 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
     });
     out.fact("standing_checks", json!(standing));
     show_work_under_way(ctx, &project, &bp, out);
+    super::alongside::say(ctx, &bp, None, &[], out);
     match backlog::next(&items) {
         Some(i) if standing == Some("done") || i.id == "standing-checks" => {
             out.say(format!(

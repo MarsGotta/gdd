@@ -102,6 +102,7 @@ zones:
       - ':(glob)<pattern>'
     # gates: gdd/gates/<zone>.feature   # include for the red zone rules approved with the blueprint, or whenever the zone has its own gates
 # hidden: <where the hidden examples live, when a color asks for them>
+parallel: 2  # changes open at once; one that plans to touch a file an open change plans to touch waits for it
 closing:
   who: <who gives the verdict on a change in use, such as its author or whoever answers for the product>
   days: 7  # in use with nothing recorded against it, a change that promised nothing closes by itself

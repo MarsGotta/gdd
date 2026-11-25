@@ -378,6 +378,9 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
                 "--paths lists every path the change will touch",
             ));
         }
+        if l.state.progress.briefs == 0 || l.state.progress.brief_stopped.is_some() {
+            super::alongside::room_for(ctx, &l.bp, id, a.paths)?;
+        }
         if log_kind(id) == LogKind::Change
             && let Some(wait) = pending_standing_checks(ctx)?
         {

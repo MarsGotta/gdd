@@ -66,6 +66,7 @@ What to look for:
 - **Per reviewer:** how many of its findings ended as `false` or `minor`, in `findings`. That is its noise.
 - **Per level:** a `model` in a report that is neither a name its level has in the blueprint's `levels`, in any environment or under `reviewer`, nor the model a `prepare` step saw that name launch. That role ran on something else: tell the person.
 - **Per round:** if an agent gives up or disputes the same thing every time, or the reviewer takes long to pass a change, the brief or the checks are wrong.
+- **Per change at once:** the layer's refusals `paths-shared` and `parallel-full`, and `behind-main`, a change that had to take in what the main branch changed before it shipped. Where catching up keeps costing rounds, propose lowering the blueprint's `parallel`; where changes keep waiting for room and nothing collides, raising it.
 - **Per check of a change:** how many changes of each color the review sent back to whoever wrote their checks, in the summary and `reviews_to_checks` in `changes`, each one a whole round. Read what those findings said and how they ended: where weak checks keep coming back on a color, propose a check of planted faults for it, as **What you propose** says.
 - **After a level's model changed:** the changes since, against the ones before at the same color: rounds, findings, and what each cost. A model that gets through in fewer rounds may let that color run on a lighter level, or with lower limits: propose it. It is no reason to retire a check, which judges the product and not the model.
 
