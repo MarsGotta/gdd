@@ -190,6 +190,9 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
                 .map(|c| c.id)
                 .collect()
         };
+        // What the blueprint has report is the reviewer's map on every color, red included, where
+        // it blocks: its output is kept longer, whatever it exits with (decision 150).
+        let maps: Vec<String> = l.bp.checks().into_iter().filter(|c| c.reports()).map(|c| c.id).collect();
         let outputs = runs_dir(&ctx.root, id, "gates", out)?;
         let (dir, place, _temp) = place_for(ctx, at, &head)?;
         // A fresh copy has only what git holds: the blueprint's `install` gives it what the checks
@@ -201,7 +204,7 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
                 Some(cmd) => Some(install_in(&dir, &outputs, cmd, id, &head, out)?),
                 None => None,
             };
-            let (ran, skipped) = run_checks(&dir, &outputs, &plan, &commands, &reporting, out);
+            let (ran, skipped) = run_checks(&dir, &outputs, &plan, &commands, &reporting, &maps, out);
             Ok((installed, ran, skipped))
         })();
         if matches!(place, Place::Worktree) {
@@ -496,7 +499,7 @@ fn install_in(
     head: &str,
     out: &mut Out,
 ) -> R<Value> {
-    let r = gates::run_check(dir, "install", cmd, &outputs.join("install.out"));
+    let r = gates::run_check(dir, "install", cmd, &outputs.join("install.out"), 5);
     out.say(format!(
         "{:<10} {} exit {} in {} s",
         "install",
@@ -535,6 +538,7 @@ fn run_checks(
     plan: &[gates::Planned],
     commands: &std::collections::BTreeMap<String, String>,
     reporting: &[String],
+    maps: &[String],
     out: &mut Out,
 ) -> (Vec<gates::Ran>, Vec<Value>) {
     // A check that only reports never stops the tiers after it (decision 145).
@@ -556,11 +560,13 @@ fn run_checks(
                 break;
             }
             let command = commands.get(&p.check).cloned().unwrap_or_default();
+            let lines = if maps.contains(&p.check) { gates::MAP_LINES } else { 5 };
             let r = gates::run_check(
                 dir,
                 &p.check,
                 &command,
                 &outputs.join(format!("{}.out", p.check)),
+                lines,
             );
             out.say(format!(
                 "{:<10} {} exit {} in {} s{}",

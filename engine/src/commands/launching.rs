@@ -455,10 +455,12 @@ fn last_attempt(s: &mut Vec<String>, build: &Value) {
     }
 }
 
-/// What the checks that only report found at the last gates, such as the survivors of mutation
-/// testing: a map for the reviewer of what the tests may leave unchecked, never findings by
-/// themselves. In the one project measured, every change had survivors, also those the reviewer
-/// passed at once (decision 142).
+/// What the checks the blueprint has report said at the last gates, such as the survivors of
+/// mutation testing: a map for the reviewer of what the tests may leave unchecked, never findings
+/// by themselves. In the one project measured, every change had survivors, also those the reviewer
+/// passed at once (decision 142). It goes whether the check passed or failed: in the benchmark the
+/// agent that set mutation up had it pass whatever survived, and the reviewer got nothing
+/// (decision 150).
 fn reported_map(s: &mut Vec<String>, l: &Loaded) {
     let gates = log::events(&l.entries)
         .into_iter()
@@ -468,22 +470,23 @@ fn reported_map(s: &mut Vec<String>, l: &Loaded) {
     let Some(gates) = gates else {
         return;
     };
-    let reported: Vec<&Value> = gates["gates"]
+    let maps: Vec<&Value> = gates["gates"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|g| g["result"] == "reported")
+        .filter(|g| l.bp.check(str_of(g, "check")).is_some_and(|c| c.reports()))
         .collect();
-    if reported.is_empty() {
+    if maps.is_empty() {
         return;
     }
-    s.push("Checks that only report found this at the gates. Read it as a map of what the tests may leave unchecked, never as findings: a survivor is a finding only where a scenario of the brief asks for that behavior and no sealed test catches it, and then it goes back to whoever wrote the checks, cited as any finding.".into());
-    for g in reported {
+    s.push("Checks that only report said this at the gates. Read it as a map of what the tests may leave unchecked, never as findings: a survivor is a finding only where a scenario of the brief asks for that behavior and no sealed test catches it, and then it goes back to whoever wrote the checks, cited as any finding.".into());
+    for g in maps {
         s.push(format!(
-            "- {}: `{}`; last lines: {}",
+            "- {}, exit {}: `{}`; last lines: {}",
             str_of(g, "check"),
+            g["exit"],
             str_of(g, "command"),
-            output_tail(str_of(g, "tail"), 600)
+            output_tail(str_of(g, "tail"), 6000)
         ));
     }
 }

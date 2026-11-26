@@ -41,7 +41,7 @@ The blueprint's `colors` say what each color asks for, and the blueprint wins. W
 - **Red** takes all five steps.
 - **The standing checks** you set up after preparing keep every step of their own section below, whatever color they serve: they judge every change.
 - **A check that waits,** one whose `standing-checks-<check id>` is still `todo` in the backlog: when this change is the first to bring what its `when` names, set up with your tests the runner or the configuration it needs, sealed with them, so that the change's gates run it for real.
-- **Mutation testing,** where the blueprint has it, judges only what the change adds or changes between `<start>` and its head. It runs at the gates, before the review, and only reports, failing whenever a mutant survives. A weak test the reviewer finds in what survives comes back to you: strengthen it, never the product. Code no scenario asks for is the builder's to take out.
+- **Mutation testing,** where the blueprint has it, judges only what the change adds or changes between `<start>` and its head. It runs at the gates, before the review, and only reports: it fails only if it can't run, and ends listing what survived, a line each. A weak test the reviewer finds there comes back to you: strengthen it, never the product. Code no scenario asks for is the builder's to take out.
 - **Hidden examples** exist only when the blueprint's `guarantee` is `platform` or `engine` and a color asks for `hidden`: more cases of the same scenarios, written by you, so that a solution made to measure for the visible ones fails. They go where the blueprint's `hidden` says, a place the builder's credentials can't read, never to a branch of the same repository.
 
 ## Each check, before you seal it
@@ -85,7 +85,7 @@ Prove each check once, in a throwaway clone in your temporary folder, and here t
 
 Two kinds of check need more care, because an empty project proves nothing about them:
 
-- **A check that not every color asks,** like `mutation`. Set it up with the rest, to judge only what a change adds or changes between `<start>` and its head. If it judged the whole code, the first change of that color would answer for everything the lighter ones shipped. Prove it on code: plant a small piece with a weak test inside a commit and watch it fail, then plant the same outside that commit and watch it pass.
+- **A check that not every color asks,** like `mutation`. Set it up with the rest, to judge only what a change adds or changes between `<start>` and its head. If it judged the whole code, the first change of that color would answer for everything the lighter ones shipped. Prove it on code: plant a small piece with a weak test inside a commit and watch it catch it, then plant the same outside that commit and watch it not.
 - **A check that closes at a number,** a score or a budget. Take the tool's own default, looked up on its own page and never from memory, or what the code as it is reaches, and report it, so that it goes into the blueprint with the person's yes. The highest number isn't the strictest gate: it's one no change gets through.
 
 For each approved zone gate with a machine check, do the same for the check of each new `Rule:` in `gdd/gates/<zone>.feature`, built from its scenarios. There, what got past a mature tool in a real change becomes a rule in that tool's own configuration, or a script beside it when it takes none.

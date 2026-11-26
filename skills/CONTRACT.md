@@ -431,9 +431,9 @@ checks:
   # - id: mutation  # planted faults: in software with the first yellow change that has cases, elsewhere when the tests proved weak
   #   type: machine
   #   command: <mutation command, on what `git diff <start> HEAD` gives in the files the unit tests reach, and nothing else>
-  #   passes: <no mutant survives, so that it fails and reports the ones that did; if it ever blocks, the tool's own default, looked up on its page>
+  #   passes: <the report is made: it fails only when the tool can't run, and ends with what survived, a line each; if it ever blocks, the tool's own default, looked up on its page>
   #   runs: before review
-  #   state: reports  # it never blocks: the reviewer reads its survivors as a map of what the tests leave unchecked
+  #   state: reports  # what survives never blocks: the reviewer reads it as a map of what the tests leave unchecked
   - id: review
     type: reviewer
   # - id: hidden          # only from platform up, when a color asks for it

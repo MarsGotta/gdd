@@ -190,7 +190,7 @@ pub fn plan(
     out
 }
 
-/// The last lines of an output, five at most, without trailing blank lines.
+/// The last `n` lines of an output, without trailing blank lines.
 pub fn tail(text: &str, n: usize) -> String {
     let lines: Vec<&str> = text.trim_end().lines().collect();
     let from = lines.len().saturating_sub(n);
@@ -221,9 +221,13 @@ pub fn zone_gate_checks(feature: &str) -> Vec<String> {
     out
 }
 
+/// The lines kept of a check that only reports, whose output is the reviewer's map: five would
+/// keep the tool's closing table and lose what survived (decision 150).
+pub const MAP_LINES: usize = 60;
+
 /// Run one check's command with `sh -c` in a directory, standard input closed, its output to a
-/// file, and say what came out.
-pub fn run_check(dir: &Path, check: &str, command: &str, output: &Path) -> Ran {
+/// file, and say what came out in its last `lines` lines.
+pub fn run_check(dir: &Path, check: &str, command: &str, output: &Path, lines: usize) -> Ran {
     let started = std::time::Instant::now();
     let file = crate::runs::create_new(output);
     let status = match file {
@@ -254,7 +258,7 @@ pub fn run_check(dir: &Path, check: &str, command: &str, output: &Path) -> Ran {
         Err(e) => (None, format!("it could not run: {e}")),
     };
     let seconds = runner_seconds(&text).unwrap_or((clock * 100.0).round() / 100.0);
-    let mut t = tail(&text, 5);
+    let mut t = tail(&text, lines);
     if !extra.is_empty() {
         t = extra;
     }
@@ -365,7 +369,7 @@ mod tests {
     fn runs_a_command() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("o.txt");
-        let r = run_check(dir.path(), "x", "echo one; echo two >&2; exit 3", &out);
+        let r = run_check(dir.path(), "x", "echo one; echo two >&2; exit 3", &out, 5);
         assert_eq!(r.exit, Some(3));
         assert!(!r.passed);
         assert!(r.tail.contains("one") && r.tail.contains("two"));

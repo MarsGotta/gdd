@@ -3470,8 +3470,29 @@ fn a_check_the_blueprint_has_report_fails_without_stopping_the_change() {
     // The reviewer gets what it found as a map, never as findings.
     let review = r.gdd(&["launch", "g1", "review"]);
     let prompt = review.facts["prompt"].as_str().unwrap();
-    assert!(prompt.contains("Checks that only report found this at the gates"), "{prompt}");
+    assert!(prompt.contains("Checks that only report said this at the gates"), "{prompt}");
     assert!(prompt.contains("it found something"), "{prompt}");
+}
+
+/// A reporting check reaches the reviewer when it passes too, with more than the five lines kept
+/// of the others: mutation that exits 0 printed its survivors above its last five (decision 150).
+#[test]
+fn a_reporting_check_that_passes_still_reaches_the_reviewer() {
+    let bp = BLUEPRINT.replace(
+        "    command: sh -c 'echo the slow check ran'\n    runs: before review\n",
+        "    command: sh -c 'echo survived at line 3; for i in 1 2 3 4 5 6 7 8 9 10; do echo row $i; done'\n    runs: before review\n    state: reports\n",
+    );
+    let r = Repo::with(&bp);
+    assert_eq!(r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code, 0);
+    r.commit_on("work/g1", Some("main"), &[("src/ui/page.txt", "a new page\n")], "Build");
+    assert_eq!(r.report("g1", "build", &report_block("gdd-build", "done"), &[]).code, 0);
+    let g = r.gdd(&["gates", "g1"]);
+    assert_eq!(g.facts["next"], "review", "{}", g.out);
+    let review = r.gdd(&["launch", "g1", "review"]);
+    let prompt = review.facts["prompt"].as_str().unwrap();
+    assert!(prompt.contains("- slow, exit 0:"), "{prompt}");
+    assert!(prompt.contains("survived at line 3"), "{prompt}");
+    assert!(prompt.contains("row 10"), "{prompt}");
 }
 
 /// What a reporting check fails stops no later tier, and the seal never reports.
