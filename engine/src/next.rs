@@ -602,7 +602,7 @@ fn from_the_build_on(
                 if p.checks_fix.as_ref().is_some_and(|f| !f.tests_only) {
                     "resume the builder to merge the corrected seal and address the remaining findings"
                 } else if p.checks_fix.is_some() {
-                    "resume the builder to merge the corrected seal into the change branch"
+                    "gdd launch merges the corrected seal into the change branch itself when the product is the one reviewed, and otherwise prints the prompt that resumes the builder to merge it"
                 } else {
                     "launch gdd-build on its own branch, from <start>"
                 },

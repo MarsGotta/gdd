@@ -426,6 +426,9 @@ fn one_change_goes_alongside_unfinished_standing_checks_and_its_gates_wait_for_t
     assert!(all.facts["backlog_alongside"].is_null(), "{}", all.out);
     let n = next_of(&r, "g2");
     assert_eq!((step_of(&n), command_of(&n)), ("wait".into(), "gdd next standing-checks".into()));
+    // Its builder hears that a check they bring is no reason to stop (decision 155).
+    let beside = "The standing checks are still being set up beside this change.";
+    assert!(r.gdd(&["launch", "g1", "build"]).facts["prompt"].as_str().unwrap().contains(beside));
     // g1 is built, and its gates wait for the standing checks, again with no question.
     r.commit_on("work/g1", Some("main"), &[("src/ui/page.txt", "updated\n")], "Build");
     let built = r.report("g1", "build", &report_block("gdd-build", "done"), &[]);
@@ -453,6 +456,8 @@ fn one_change_goes_alongside_unfinished_standing_checks_and_its_gates_wait_for_t
     let later = r.gdd(&["brief", "g2", "--paths", "src/ui/second.txt"]);
     assert_eq!(later.code, 0, "{}", later.out);
     assert!(r.log_lines("g2")[0].get("alongside").is_none());
+    let launch = r.gdd(&["launch", "g2", "build"]);
+    assert!(!launch.facts["prompt"].as_str().unwrap_or_default().contains(beside), "{}", launch.out);
 }
 
 #[test]

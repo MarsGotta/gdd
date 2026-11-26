@@ -176,10 +176,20 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
                 "merge the seal's tip into the change's branch first",
             ));
         }
-        let (plan, commands) = plan_for(ctx, &l, id, &start, &head)?;
+        let (mut plan, commands) = plan_for(ctx, &l, id, &start, &head)?;
         // A check that only reports runs and is written, and its failure stops nothing, except on
         // red: the blueprint's `state: reports`, or a quarantine by the person's rule (decision 145).
         let red = l.state.progress.color.as_deref() == Some("red");
+        // On the product the review judged, with only the sealed tests corrected, what a check that
+        // only reports said then still maps it: in one run, five minutes of mutation each round
+        // for a map the reviewer of that round doesn't read (decision 154).
+        if !red && changed_tests(&l, &head).is_some() {
+            for p in plan.iter_mut().filter(|p| p.skipped.is_none()) {
+                if let Some(line) = still_maps(&l, &p.check) {
+                    p.skipped = Some(format!("the product is the one reviewed, with only its sealed tests corrected: what it said at the gates of line {line} {STILL_MAPS}"));
+                }
+            }
+        }
         let quarantined = super::gate_states::quarantined(&l.project, &l.bp, id);
         let reporting: Vec<String> = if red {
             vec![]
@@ -324,6 +334,35 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
         }
         Ok(())
     })
+}
+
+/// How a gates step says it left out a check that only reports, for the map it gave before.
+pub(super) const STILL_MAPS: &str = "still maps it";
+
+/// The gates line whose output of a check that only reports still maps the product: its last run,
+/// passed, on the commit the review judged. One that failed, ran on another product, or comes before
+/// gates that sent the tests back maps nothing of this one (decision 154).
+fn still_maps(l: &Loaded, check: &str) -> Option<usize> {
+    let fix = l.state.progress.checks_fix.as_ref().filter(|f| !f.from_gates)?;
+    l.bp.check(check).filter(|c| c.reports())?;
+    let line = last_ran(l, check)?;
+    let (_, v) = log::events(&l.entries).into_iter().find(|(n, _)| *n == line)?;
+    let ran = v["gates"].as_array()?.iter().find(|g| str_of(g, "check") == check)?;
+    (v["head"].as_str() == fix.head.as_deref() && str_of(ran, "result") == "pass").then_some(line)
+}
+
+/// The line of the last gates step where a check ran.
+pub(super) fn last_ran(l: &Loaded, check: &str) -> Option<usize> {
+    log::events(&l.entries)
+        .into_iter()
+        .rev()
+        .find(|(_, v)| {
+            step(v) == "gates"
+                && v["gates"]
+                    .as_array()
+                    .is_some_and(|g| g.iter().any(|g| str_of(g, "check") == check))
+        })
+        .map(|(line, _)| line)
 }
 
 /// The checks the change's color asks for on what it touched, in the order they run, and the

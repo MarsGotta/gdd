@@ -636,6 +636,34 @@ pub fn worktree_remove(root: &Path, dir: &Path) -> Result<(), String> {
     r
 }
 
+/// Move a branch from `old` to `new`, which descends from it. A worktree that has the branch checked
+/// out moves with it by a fast-forward, and only with nothing of its own changed in what git tracks:
+/// what it holds is someone's work. In that worktree git runs no hook and no file monitor of its
+/// own, since whoever works there can write them.
+pub fn fast_forward(root: &Path, branch: &str, old: &str, new: &str) -> Result<(), String> {
+    let no_hooks = if cfg!(windows) { "core.hooksPath=NUL" } else { "core.hooksPath=/dev/null" };
+    let off = |args: &[&'static str]| -> Vec<&str> {
+        ["-c", "core.fsmonitor=false", "-c", no_hooks].into_iter().chain(args.iter().copied()).collect()
+    };
+    let r = branch_ref(branch);
+    let list = out(root, &["worktree", "list", "--porcelain"])?;
+    let checked_out = list
+        .split("\n\n")
+        .find(|block| block.lines().any(|l| l == format!("branch {r}")))
+        .and_then(|block| block.lines().find_map(|l| l.strip_prefix("worktree ")));
+    let Some(dir) = checked_out.map(Path::new) else {
+        return out(root, &["update-ref", &r, new, old]).map(|_| ());
+    };
+    if commit_of(dir, "HEAD").as_deref() != Some(old) {
+        return Err(format!("{} has {branch} at another commit", dir.display()));
+    }
+    if !out(dir, &off(&["status", "--porcelain", "--untracked-files=no"]))?.is_empty() {
+        return Err(format!("{} has changes of its own on {branch}", dir.display()));
+    }
+    let merge: Vec<&str> = off(&["merge", "--ff-only", "--quiet"]).into_iter().chain([new]).collect();
+    out(dir, &merge).map(|_| ())
+}
+
 /// The first branch of a change that exists: `work/<id>`, `gdd-build/<id>` or `build/<id>`.
 pub fn change_branch(root: &Path, id: &str) -> Option<String> {
     ["work", "gdd-build", "build"]

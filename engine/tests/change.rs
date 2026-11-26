@@ -1284,8 +1284,11 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     );
     let again = r.report("y7", "checks", &sealed_report(&["tests"]), &[]);
     assert_eq!(again.code, 0, "{}", again.out);
-    // The builder gets the same finding, and is told the seal already answered it.
+    // The builder gets the same finding, and is told the seal already answered it, where the layer
+    // can't merge the seal itself.
+    let held = held_branch(&r, "y7");
     let b = r.gdd(&["launch", "y7", "build"]);
+    assert!(b.has("changes of its own on work/y7"), "{}", b.out);
     let prompt = b.facts["prompt"].as_str().unwrap();
     assert!(prompt.contains("f1 tests/y7.sh:1"), "{prompt}");
     assert!(prompt.contains(&format!(
@@ -1319,6 +1322,7 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     let early = r.report("y7", "build", &build_report(""), &[]);
     assert_eq!(early.facts["refused"], "start-missing", "{}", early.out);
     assert!(early.has("gdd launch y7 build"));
+    release(&r, &held);
     merge_corrected_seal(&r, "y7");
     let merged = r.report(
         "y7",
@@ -1375,6 +1379,19 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
         r.gdd(&["limits", "y7"]).facts["caps"]["rounds"]["used"],
         1.0
     );
+}
+
+/// The change's branch checked out in a worktree with an edit of its own: the layer leaves the merge
+/// of the corrected seal to the builder (decision 153).
+fn held_branch(r: &Repo, id: &str) -> std::path::PathBuf {
+    let dir = r.dir.path().join("held");
+    r.git(&["worktree", "add", "-q", dir.to_str().unwrap(), &format!("work/{id}")]);
+    std::fs::write(dir.join("src/core/app.txt"), "an edit of its own\n").unwrap();
+    dir
+}
+
+fn release(r: &Repo, dir: &std::path::Path) {
+    r.git(&["worktree", "remove", "--force", dir.to_str().unwrap()]);
 }
 
 fn merge_corrected_seal(r: &Repo, id: &str) {
@@ -2058,11 +2075,11 @@ fn a_seal_merge_at_the_round_limit_leaves_the_product_unchanged() {
     assert_eq!(r.gdd(&["gates", "budget"]).facts["next"], "review");
     return_test(&r, "budget");
     correct_test(&r, "budget", &[]);
-    assert!(
-        r.gdd(&["launch", "budget", "build"])
-            .has("Only merge the corrected seal")
-    );
-    assert!(report_test_merge(&r, "budget"));
+    let merged = r.gdd(&["launch", "budget", "build"]);
+    assert_eq!(merged.code, 0, "{}", merged.out);
+    assert!(merged.has("No builder runs"), "{}", merged.out);
+    let step = r.log_lines("budget").last().unwrap().clone();
+    assert_eq!((&step["seal_only"], &step["by"]), (&serde_json::json!(true), &serde_json::json!("layer")), "{step}");
     assert_eq!(
         r.gdd(&["limits", "budget"]).facts["caps"]["rounds"]["used"],
         1.0
@@ -2112,6 +2129,7 @@ fn a_product_edit_at_the_round_limit_needs_a_waiver() {
         "build"
     );
     let next = r.gdd(&["next", "delta"]);
+    let held = held_branch(&r, "delta");
     let launch = r.named(next.facts["state"]["next"]["command"].as_str().unwrap());
     assert_eq!(launch.code, 0, "{}", launch.out);
     assert!(
@@ -2119,6 +2137,7 @@ fn a_product_edit_at_the_round_limit_needs_a_waiver() {
         "{}",
         launch.out
     );
+    release(&r, &held);
     merge_corrected_seal(&r, "delta");
     r.commit_on(
         "work/delta",
@@ -3493,6 +3512,94 @@ fn a_reporting_check_that_passes_still_reaches_the_reviewer() {
     assert!(prompt.contains("- slow, exit 0:"), "{prompt}");
     assert!(prompt.contains("survived at line 3"), "{prompt}");
     assert!(prompt.contains("row 10"), "{prompt}");
+}
+
+/// A correction confined to the sealed tests, on the product the review judged: the layer merges the
+/// seal into the branch with no builder, and the gates leave out what only reports, whose earlier map
+/// the reviewer gets (decisions 153 and 154).
+#[test]
+fn a_tests_only_correction_is_merged_by_the_layer_and_keeps_the_earlier_map() {
+    let bp = BLUEPRINT.replace(
+        "    command: sh -c 'echo the slow check ran'\n    runs: before review\n    when: [':(glob)src/ui/**']\n",
+        "    command: sh -c 'echo survived at line 3'\n    runs: before review\n    when: [':(glob)src/**']\n    state: reports\n",
+    );
+    let r = Repo::with(&bp);
+    gated_change(&r, "lay", "");
+    let mapped = r.log_lines("lay").len();
+    return_test(&r, "lay");
+    r.commit_on("gdd-seal/lay", None, &[("tests/lay.sh", "test -s src/core/app.txt")], "Correct the test");
+    let sealed = r.report("lay", "checks", &sealed_report(&["tests"]), &[]);
+    assert_eq!(sealed.facts["next"], "build", "{}", sealed.out);
+    let before = r.git(&["rev-parse", "work/lay"]);
+    let launch = r.gdd(&["launch", "lay", "build"]);
+    assert_eq!(launch.code, 0, "{}", launch.out);
+    assert!(launch.has("No builder runs: gdd gates lay"), "{}", launch.out);
+    assert_eq!(r.git(&["rev-parse", "work/lay^1"]), before);
+    assert_eq!(r.git(&["rev-parse", "work/lay^2"]), r.git(&["rev-parse", "gdd-seal/lay"]));
+    let step = r.log_lines("lay").last().unwrap().clone();
+    assert_eq!((&step["step"], &step["seal_only"], &step["by"]), (&serde_json::json!("build"), &serde_json::json!(true), &serde_json::json!("layer")));
+    assert_eq!(r.gdd(&["limits", "lay"]).facts["caps"]["rounds"]["used"], 0.0);
+    let g = r.gdd(&["gates", "lay"]);
+    assert_eq!(g.facts["next"], "review", "{}", g.out);
+    let gates = r.log_lines("lay").last().unwrap().clone();
+    assert!(!gates["gates"].to_string().contains("\"slow\""), "{gates}");
+    assert!(gates["skipped"].to_string().contains(&format!("line {mapped} still maps it")), "{gates}");
+    let review = r.gdd(&["launch", "lay", "review"]);
+    let prompt = review.facts["prompt"].as_str().unwrap();
+    assert!(prompt.contains(&format!("- slow, at the gates of line {mapped}, before the tests were corrected")), "{prompt}");
+    assert!(prompt.contains("survived at line 3"), "{prompt}");
+    assert!(prompt.contains("Changed tests: tests/lay.sh."), "{prompt}");
+    assert_eq!(r.gdd(&["verify", "lay"]).facts["errors"], 0);
+}
+
+/// A check that only reports and failed, or that never ran on the reviewed product, runs again on the
+/// layer's merge: its output maps nothing of the product (decision 154). And a builder that comes back
+/// after that merge hears that the layer moved its branch, and gets its own last attempt (decision 153).
+#[test]
+fn a_failed_map_runs_again_and_a_returning_builder_hears_of_the_merge() {
+    let bp = BLUEPRINT.replace(
+        "    command: sh -c 'echo the slow check ran'\n    runs: before review\n    when: [':(glob)src/ui/**']\n",
+        "    command: sh -c 'echo the tool cannot run; exit 1'\n    runs: before review\n    when: [':(glob)src/**']\n    state: reports\n",
+    ).replace("runs_before_review: 2", "runs_before_review: 5");
+    let r = Repo::with(&bp);
+    checked(&r, "redo");
+    r.commit_on("work/redo", Some("gdd-seal/redo"), &[("src/core/app.txt", "ok")], "Build");
+    let claim = serde_json::json!([{"check": "tests", "command": "sh tests/run.sh", "exit": 0, "tail": "the builder's own run"}]);
+    let built = r.report("redo", "build", &format!("```json\n{claim}\n```\n{}", build_report("")), &[]);
+    assert_eq!(built.code, 0, "{}", built.out);
+    assert_eq!(r.gdd(&["gates", "redo"]).facts["next"], "review");
+    return_test(&r, "redo");
+    r.commit_on("gdd-seal/redo", None, &[("tests/redo.sh", "test -s src/core/app.txt")], "Correct the test");
+    r.report("redo", "checks", &sealed_report(&["tests"]), &[]);
+    assert!(r.gdd(&["launch", "redo", "build"]).has("No builder runs"));
+    let g = r.gdd(&["gates", "redo"]);
+    assert_eq!(g.facts["next"], "review", "{}", g.out);
+    let gates = r.log_lines("redo").last().unwrap().clone();
+    assert!(gates["gates"].to_string().contains("\"slow\""), "it ran again: {gates}");
+    let product = review_text("fix", "yellow", "f2 src/core/app.txt:1 wrong value | @id:redo-1");
+    let fix = r.report("redo", "review", &product, &[]);
+    assert_eq!(fix.facts["next"], "build", "{}", fix.out);
+    let prompt = r.gdd(&["launch", "redo", "build"]).facts["prompt"].as_str().unwrap().to_string();
+    assert!(prompt.contains("The layer merged the corrected seal into work/redo itself"), "{prompt}");
+    assert!(prompt.contains("the builder's own run"), "{prompt}");
+}
+
+/// A worktree that has the branch checked out, clean, moves with the layer's merge: the builder finds
+/// the corrected tests there if it comes back (decision 153).
+#[test]
+fn the_layer_moves_a_clean_worktree_with_its_merge() {
+    let r = Repo::new();
+    gated_change(&r, "wt", "");
+    return_test(&r, "wt");
+    r.commit_on("gdd-seal/wt", None, &[("tests/wt.sh", "test -s src/core/app.txt")], "Correct the test");
+    r.report("wt", "checks", &sealed_report(&["tests"]), &[]);
+    let dir = r.dir.path().join("builder");
+    r.git(&["worktree", "add", "-q", dir.to_str().unwrap(), "work/wt"]);
+    let launch = r.gdd(&["launch", "wt", "build"]);
+    assert!(launch.has("No builder runs"), "{}", launch.out);
+    assert_eq!(git(&dir, &["rev-parse", "HEAD"]), r.git(&["rev-parse", "work/wt"]));
+    assert_eq!(std::fs::read_to_string(dir.join("tests/wt.sh")).unwrap(), "test -s src/core/app.txt");
+    assert_eq!(git(&dir, &["status", "--porcelain"]), "");
 }
 
 /// What a reporting check fails stops no later tier, and the seal never reports.

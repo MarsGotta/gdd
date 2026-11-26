@@ -125,7 +125,8 @@ FNR == NR {
     next_up = ($0 ~ /"result" *: *"fail"/) ? "" : "review"
     if ($0 ~ /"result" *: *"fail"/) gates++
     each = 0; before = 0; late_ran = 0
-    n = split($0, part, /"check" *: *"/)
+    ran = $0; sub(/"skipped" *:.*/, "", ran)
+    n = split(ran, part, /"check" *: *"/)
     for (i = 2; i <= n; i++) {
       c = part[i]; sub(/".*/, "", c)
       s = 0

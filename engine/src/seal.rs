@@ -117,6 +117,25 @@ fn mode_of(_: &Path) -> &'static str {
     "100644"
 }
 
+/// A commit that merges `theirs` into `ours`, through `git merge-tree`, without a checkout. A
+/// conflict comes back as the paths it is in.
+fn merge_commit(root: &Path, ours: &str, theirs: &str, msg: &str) -> Result<String, String> {
+    let o = git::run(
+        root,
+        &["merge-tree", "--write-tree", "--name-only", ours, theirs],
+    )?;
+    let text = String::from_utf8_lossy(&o.stdout).to_string();
+    if !o.status.success() {
+        let conflicts: Vec<&str> = text.lines().skip(1).filter(|l| !l.is_empty()).collect();
+        return Err(format!("conflicts in {}", conflicts.join(", ")));
+    }
+    let tree = text.lines().next().unwrap_or("").trim().to_string();
+    git::out(
+        root,
+        &["commit-tree", &tree, "-p", ours, "-p", theirs, "-m", msg],
+    )
+}
+
 /// Merge the main branch into the seal, through `git merge-tree`, without a checkout. Returns the
 /// new tip, or the old one when the main branch is already in it.
 pub fn merge_main(root: &Path, id: &str, main: &str) -> Result<String, String> {
@@ -127,33 +146,19 @@ pub fn merge_main(root: &Path, id: &str, main: &str) -> Result<String, String> {
     if git::is_ancestor(root, &main_tip, &tip) {
         return Ok(tip);
     }
-    let o = git::run(
-        root,
-        &["merge-tree", "--write-tree", "--name-only", &tip, &main_tip],
-    )?;
-    let text = String::from_utf8_lossy(&o.stdout).to_string();
-    if !o.status.success() {
-        let conflicts: Vec<&str> = text.lines().skip(1).filter(|l| !l.is_empty()).collect();
-        return Err(format!(
-            "merging {main} into the seal conflicts in {}: whoever wrote what conflicts settles it",
-            conflicts.join(", ")
-        ));
-    }
-    let tree = text.lines().next().unwrap_or("").trim().to_string();
     let msg = format!("Merge {main} into the seal of {id}");
-    let commit = git::out(
-        root,
-        &[
-            "commit-tree",
-            &tree,
-            "-p",
-            &tip,
-            "-p",
-            &main_tip,
-            "-m",
-            &msg,
-        ],
-    )?;
+    let commit = merge_commit(root, &tip, &main_tip, &msg).map_err(|e| {
+        format!("merging {main} into the seal {e}: whoever wrote what conflicts settles it")
+    })?;
     git::out(root, &["update-ref", &reference, &commit, &tip])?;
     Ok(commit)
+}
+
+/// The commit that merges the seal's tip into a change's branch, made without a checkout and
+/// without moving the branch: its head, when it already holds the tip (decision 153).
+pub fn seal_merged_into(root: &Path, id: &str, head: &str, tip: &str) -> Result<String, String> {
+    if git::is_ancestor(root, tip, head) {
+        return Ok(head.to_string());
+    }
+    merge_commit(root, head, tip, &format!("Merge the corrected seal of {id}"))
 }

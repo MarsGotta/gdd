@@ -361,6 +361,23 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
             "Before sealing, read each scenario test and strengthen it if a wrong solution would pass. Read each effect where its scenario says it can be seen. In each rejecting json proof, name the test in `test` and the wrong solution it rejects in `wrong`. Seal what you write on gdd-seal/{id}, on top of its tip. Don't read gdd/log/ beyond a line named here: what you need is here, and an earlier round's stop isn't yours."
         )),
         "build" => {
+            // In three runs of three, the first build beside the standing checks stopped on a check
+            // whose configuration only they bring (decision 155).
+            if p.alongside_standing
+                && std::fs::read_to_string(l.project.root.join("gdd/backlog.md")).is_ok_and(|t| {
+                    crate::backlog::standing_checks(&crate::backlog::items(&t)) != Some("done")
+                })
+            {
+                s.push("The standing checks are still being set up beside this change. A check that can't run because a file it needs is on neither your branch nor <start> comes with them: don't stop for it, and name it in your report. The gates wait for them and run it then.".into());
+            }
+            if log::events(&l.entries)
+                .into_iter()
+                .rev()
+                .find(|(_, v)| step(v) == "build")
+                .is_some_and(|(_, v)| v["by"] == "layer")
+            {
+                s.push(format!("The layer merged the corrected seal into {branch} itself, after your last round: take that tip from the project before you work, since a copy of your own doesn't have it."));
+            }
             if p.merging_checks_fix() && l.state.limits.line("rounds_per_change", "rounds").is_some_and(|l| l.full) {
                 s.push("Only merge the corrected seal. No build round remains for a product change.".into());
             }
@@ -462,27 +479,44 @@ fn last_attempt(s: &mut Vec<String>, build: &Value) {
 /// agent that set mutation up had it pass whatever survived, and the reviewer got nothing
 /// (decision 150).
 fn reported_map(s: &mut Vec<String>, l: &Loaded) {
-    let gates = log::events(&l.entries)
-        .into_iter()
-        .rev()
-        .find(|(_, v)| step(v) == "gates")
-        .map(|(_, v)| v.clone());
-    let Some(gates) = gates else {
+    let events = log::events(&l.entries);
+    let Some((last, gates)) = events.iter().rev().find(|(_, v)| step(v) == "gates") else {
         return;
     };
-    let maps: Vec<&Value> = gates["gates"]
-        .as_array()
+    // Each check that only reports, from the last gates, or from the ones before when the last left
+    // it out because only the sealed tests changed (decision 154).
+    let left_out = |check: &str| {
+        gates["skipped"].as_array().is_some_and(|k| {
+            k.iter().any(|k| {
+                str_of(k, "check") == check && str_of(k, "why").ends_with(super::gating::STILL_MAPS)
+            })
+        })
+    };
+    let maps: Vec<(usize, &Value)> = l
+        .bp
+        .checks()
         .into_iter()
-        .flatten()
-        .filter(|g| l.bp.check(str_of(g, "check")).is_some_and(|c| c.reports()))
+        .filter(|c| c.reports())
+        .filter_map(|c| {
+            let line = super::gating::last_ran(l, &c.id)
+                .filter(|line| line == last || left_out(&c.id))?;
+            let (_, v) = events.iter().find(|(n, _)| *n == line)?;
+            let g = v["gates"].as_array()?.iter().find(|g| str_of(g, "check") == c.id)?;
+            Some((line, g))
+        })
         .collect();
     if maps.is_empty() {
         return;
     }
     s.push("Checks that only report said this at the gates. Read it as a map of what the tests may leave unchecked, never as findings: a survivor is a finding only where a scenario of the brief asks for that behavior and no sealed test catches it, and then it goes back to whoever wrote the checks, cited as any finding.".into());
-    for g in maps {
+    for (line, g) in maps {
+        let when = if line == *last {
+            String::new()
+        } else {
+            format!(", at the gates of line {line}, before the tests were corrected: a survivor there may be caught now")
+        };
         s.push(format!(
-            "- {}, exit {}: `{}`; last lines: {}",
+            "- {}{when}, exit {}: `{}`; last lines: {}",
             str_of(g, "check"),
             g["exit"],
             str_of(g, "command"),
@@ -672,7 +706,12 @@ fn fix_round_notes(s: &mut Vec<String>, l: &Loaded, role: &str, setup: bool) {
             }
         }
     }
-    if let Some((_, build)) = events.iter().rev().find(|(_, v)| step(v) == "build") {
+    // The layer's own merge of a corrected seal tried nothing: the last attempt is the builder's.
+    if let Some((_, build)) = events
+        .iter()
+        .rev()
+        .find(|(_, v)| step(v) == "build" && v["by"] != "layer")
+    {
         last_attempt(s, build);
     }
     s.push("Use these results to diagnose the fix. Run the required checks on the fix.".into());
@@ -1138,6 +1177,73 @@ fn run_role(
     Ok(())
 }
 
+/// A correction confined to the change's sealed tests, on the product the review judged: the layer
+/// merges the corrected seal into the change's branch itself, and the gates come next with no
+/// builder, which in one run took seven to nine minutes for that merge alone (decision 153). A
+/// merge that conflicts, that brings more than the corrected tests, or that a worktree with work
+/// of its own holds back, stays the builder's.
+fn merged_tests_only(ctx: &Ctx, l: &Loaded, id: &str, out: &mut Out) -> R<bool> {
+    let p = &l.state.progress;
+    let git = &l.state.git;
+    let (true, Some(branch), Some(head), Some(tip)) = (
+        p.merging_checks_fix()
+            && p.checks_fix.as_ref().is_some_and(|f| f.tests_only)
+            && git.seal_tip.is_some()
+            && git.seal_tip == p.start,
+        git.branch.as_deref(),
+        git.head.as_deref(),
+        p.start.as_deref(),
+    ) else {
+        return Ok(false);
+    };
+    let began = std::time::Instant::now();
+    let merged = match crate::seal::seal_merged_into(&ctx.root, id, head, tip) {
+        Ok(m) if crate::judged::changed_tests(&ctx.root, id, p, &m).is_some() => m,
+        Ok(_) => {
+            out.say("merging the corrected seal brings more than the corrected tests: the builder merges it");
+            return Ok(false);
+        }
+        Err(e) => {
+            out.say(format!("the corrected seal doesn't merge by itself ({e}): the builder merges it"));
+            return Ok(false);
+        }
+    };
+    if merged != head
+        && let Err(e) = git::fast_forward(&ctx.root, branch, head, &merged)
+    {
+        out.say(format!("{e}: the builder merges the corrected seal"));
+        return Ok(false);
+    }
+    let mut m = obj(vec![
+        ("step", json!("build")),
+        (
+            "report",
+            super::brief::report_obj(
+                "gdd",
+                Some(env!("CARGO_PKG_VERSION")),
+                None,
+                None,
+                1 + p.builds,
+                "done",
+                "none",
+                Some(began.elapsed().as_secs_f64()),
+                None,
+            ),
+        ),
+        ("claims", json!([])),
+    ]);
+    m.insert("seal_only".into(), json!(true));
+    m.insert("by".into(), json!("layer"));
+    let line = write(l, id, &new_event(id, "step", &time::now_string(), m))?;
+    out.say(format!(
+        "the correction touched only the sealed tests and the product is the one reviewed: the layer merged the corrected seal into {branch} ({}), line {line}. No builder runs: gdd gates {id}",
+        git::short(&merged)
+    ));
+    out.fact("merged", json!(merged));
+    out.fact("line", line);
+    Ok(true)
+}
+
 pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
     run_change(ctx, id, "launch", |out| {
         if !["checks", "build", "review", "reading"].contains(&role) {
@@ -1145,6 +1251,9 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         }
         let l = load_attempt(ctx, id, role, out)?;
         may_launch(ctx, &l, id, role)?;
+        if role == "build" && merged_tests_only(ctx, &l, id, out)? {
+            return Ok(());
+        }
         let sent_back = (role == "review")
             .then(|| review_sent_back(&ctx.root, id))
             .flatten();

@@ -225,6 +225,8 @@ fn synthetic_logs_count_the_same() {
     let fail = r#""event":"step","step":"gates","gates":[{"check":"seal","seconds":1,"result":"pass"},{"check":"tests","seconds":20,"result":"fail"}]"#;
     let slow = r#""event":"step","step":"gates","gates":[{"check":"tests","seconds":130.5,"tail":"the \"check\":\"x\" text","result":"pass"},{"check":"e2e","seconds":30,"result":"pass"}]"#;
     let late = r#""event":"step","step":"gates","gates":[{"check":"tests","seconds":5,"result":"pass"},{"check":"e2e","seconds":40,"result":"fail"}]"#;
+    // A check left out of a round is no run before the review (decision 154).
+    let left_out = r#""event":"step","step":"gates","gates":[{"check":"tests","seconds":5,"result":"pass"}],"skipped":[{"check":"e2e","why":"the product is the one reviewed: still maps it"}]"#;
     let pass = r#""event":"step","step":"review","report":{"result":"pass"},"verdict":"pass""#;
     let fix = r#""event":"step","step":"review","report":{"result":"fix"},"verdict":"fix""#;
     let waiver = |limit: &str, to: &str| {
@@ -281,6 +283,17 @@ fn synthetic_logs_count_the_same() {
     let mut stop = rounds[..rounds.len() - 2].to_vec();
     stop.push(ev(8, stopped, false));
     cases.push(("stopped".into(), tpl.clone(), stop));
+    cases.push((
+        "left out".into(),
+        tpl.clone(),
+        vec![
+            ev(0, brief, false),
+            ev(1, checks, false),
+            ev(2, build, false),
+            ev(3, left_out, false),
+            ev(4, ask, false),
+        ],
+    ));
     cases.push((
         "slow".into(),
         tpl.clone(),
