@@ -41,7 +41,7 @@ The blueprint's `colors` say what each color asks for, and the blueprint wins. W
 - **Red** takes all five steps.
 - **The standing checks** you set up after preparing keep every step of their own section below, whatever color they serve: they judge every change.
 - **A check that waits,** one whose `standing-checks-<check id>` is still `todo` in the backlog: when this change is the first to bring what its `when` names, set up with your tests the runner or the configuration it needs, sealed with them, so that the change's gates run it for real.
-- **Mutation testing,** where the blueprint has it, judges only what the change adds or changes between `<start>` and its head. It runs at the gates, before the review, and only reports. A weak test the reviewer finds in what survives comes back to you: strengthen it, never the product. Code no scenario asks for is the builder's to take out.
+- **Mutation testing,** where the blueprint has it, judges only what the change adds or changes between `<start>` and its head. It runs at the gates, before the review, and only reports, failing whenever a mutant survives. A weak test the reviewer finds in what survives comes back to you: strengthen it, never the product. Code no scenario asks for is the builder's to take out.
 - **Hidden examples** exist only when the blueprint's `guarantee` is `platform` or `engine` and a color asks for `hidden`: more cases of the same scenarios, written by you, so that a solution made to measure for the visible ones fails. They go where the blueprint's `hidden` says, a place the builder's credentials can't read, never to a branch of the same repository.
 
 ## Each check, before you seal it
