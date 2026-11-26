@@ -956,8 +956,9 @@ if [ "$variant" = timed ]; then
 #   gdd-check {"check":"<check id>","seconds":<whole seconds>,"exit":<exit code>}
 #
 # The commands of the constitution go through it, and so do the ones of the blueprint's checks,
-# all but seal. It belongs to the project: the person approves it with the blueprint, and a
-# project that can't run it leaves it out, and then nothing says what a check took.
+# all but seal. It belongs to the project, copied as it is, which no one has to read: changing it
+# is changing the blueprint, and a project that can't run it leaves it out, and then nothing says
+# what a check took.
 # Exit code: the command's own, or 2 when it is called wrong.
 if [ "$#" -lt 3 ] || [ "$2" != "--" ]; then
   echo "usage: sh gdd/check.sh <check id> -- <command> [<argument>...]" >&2
@@ -1077,8 +1078,8 @@ if [ "$variant" = spent ] || [ "$variant" = finished ]; then
 # A waiver of a limit that names it in "limit", by its key, and its new value in "to" sets that cap
 # for this change only, the last waiver of each cap winning, and the line of that cap says so.
 #
-# It belongs to the project, like gdd/check.sh: the person approves it with the blueprint, and
-# raising a cap is changing the blueprint. It reads two files and writes nothing.
+# It belongs to the project, like gdd/check.sh, copied as it is, which no one has to read: changing
+# it or raising a cap is changing the blueprint. It reads two files and writes nothing.
 # Exit code: 0 when stop is empty, 1 when it isn't, 2 when it is called wrong or a file is missing.
 if [ "$#" -ne 1 ]; then
   echo "usage: sh gdd/limits.sh <id>" >&2

@@ -10,7 +10,7 @@ Their yes covers what is costly to get wrong: the red zones, with what must neve
     - `gdd/blueprint.md`: <what it is for, in a sentence, with what an urgent change may skip and who says whether a change helped>
     - `gdd/constitution.md`: <the rules of their product, one of them quoted>. Put them in your own words.
     - `gdd/gates/`: what the checks must prove. Please correct any <red zone> rule that doesn't fit.
-    - <each other file you wrote, the ones that go together in one line>
+    - <each other file you wrote, the ones that go together in one line, never `gdd/check.sh` or `gdd/limits.sh` copied as they are: only what you changed in one>
 
     Before you say yes:
     - <How many recent changes or planned ones needed each level of care. Name the parts of the product and where past fixes fell.>

@@ -28,8 +28,8 @@
 # A waiver of a limit that names it in "limit", by its key, and its new value in "to" sets that cap
 # for this change only, the last waiver of each cap winning, and the line of that cap says so.
 #
-# It belongs to the project, like gdd/check.sh: the person approves it with the blueprint, and
-# raising a cap is changing the blueprint. It reads two files and writes nothing.
+# It belongs to the project, like gdd/check.sh, copied as it is, which no one has to read: changing
+# it or raising a cap is changing the blueprint. It reads two files and writes nothing.
 # Exit code: 0 when stop is empty, 1 when it isn't, 2 when it is called wrong or a file is missing.
 if [ "$#" -ne 1 ]; then
   echo "usage: sh gdd/limits.sh <id>" >&2

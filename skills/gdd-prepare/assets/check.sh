@@ -8,8 +8,9 @@
 #   gdd-check {"check":"<check id>","seconds":<whole seconds>,"exit":<exit code>}
 #
 # The commands of the constitution go through it, and so do the ones of the blueprint's checks,
-# all but seal. It belongs to the project: the person approves it with the blueprint, and a
-# project that can't run it leaves it out, and then nothing says what a check took.
+# all but seal. It belongs to the project, copied as it is, which no one has to read: changing it
+# is changing the blueprint, and a project that can't run it leaves it out, and then nothing says
+# what a check took.
 # Exit code: the command's own, or 2 when it is called wrong.
 if [ "$#" -lt 3 ] || [ "$2" != "--" ]; then
   echo "usage: sh gdd/check.sh <check id> -- <command> [<argument>...]" >&2

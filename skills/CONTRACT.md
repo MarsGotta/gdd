@@ -11,8 +11,8 @@ The version of the contract is `gdd/1`. It goes in the front matter of the bluep
 | `AGENTS.md`, GDD block | The cross-cutting core, under 100 words, and the map. It imports the constitution | `gdd-prepare` | With the person's approval |
 | `gdd/constitution.md` | The stack, the commands, and three to seven rules of the product that hold everywhere | `gdd-prepare` | With the person's approval |
 | `gdd/blueprint.md` | Levels, limits, checks, colors, zones and the context of each gate, in YAML front matter, plus a Mermaid diagram | `gdd-prepare`, `gdd-harden` | Protected by CODEOWNERS; the person approves |
-| `gdd/check.sh` | The project's runner, when it has one: it runs a check, times it and says what it took | `gdd-prepare`, with the person | Like the blueprint |
-| `gdd/limits.sh` | The project's counter, when it has one: what the blueprint's `limits` still allow a change, counted from its log | `gdd-prepare`, with the person | Like the blueprint |
+| `gdd/check.sh` | The project's runner, when it has one: it runs a check, times it and says what it took | `gdd-prepare`, from its template | Like the blueprint; the person reads it only where it differs from its template |
+| `gdd/limits.sh` | The project's counter, when it has one: what the blueprint's `limits` still allow a change, counted from its log | `gdd-prepare`, from its template | Like the blueprint; the person reads it only where it differs from its template |
 | `gdd/gates/<gate>.feature` | A gate of the project, in Gherkin: which checks it asks of each color, and the bad case each of them rejects | `gdd-prepare`, `gdd-harden`, with the person | Like the blueprint |
 | `gdd/gates/<zone>.feature` | A zone's approved rules for the reviewer, with a test wherever possible | `gdd-prepare`, `gdd-harden`, with the person | Like the blueprint |
 | `gdd/exam.md` | The reviewer's exam: the changes that got past a reviewer, as commits of the main branch | `gdd-harden`, with the person | Like the blueprint |
@@ -138,7 +138,7 @@ What must never happen in this product, whichever part a change touches, in the 
 
 ## The runner
 
-A project may have a runner of its own, `gdd/check.sh`. It runs one check, times it and ends with a line that says what it took, and that line is where the `seconds` of the `gates` step come from. The commands of the constitution go through it, and so the ones of the blueprint's `checks`, which are the same commands. `seal` stays as it is, because its command is the same in every project. The runner is the project's file, not the skills': `gdd-prepare` proposes it, the person approves it with the blueprint, it lives under `gdd/`, where the seal covers it, and a project that can't run a shell leaves it out. Then the layer times each check itself, with its own clock. It is the only thing the skills carry that runs, and they never run it from their own folder.
+A project may have a runner of its own, `gdd/check.sh`. It runs one check, times it and ends with a line that says what it took, and that line is where the `seconds` of the `gates` step come from. The commands of the constitution go through it, and so the ones of the blueprint's `checks`, which are the same commands. `seal` stays as it is, because its command is the same in every project. The runner is the project's file, not the skills': `gdd-prepare` copies it from its template, which the person doesn't have to read (they read only what differs from it), it lives under `gdd/`, where the seal covers it, changing it is changing the blueprint, and a project that can't run a shell leaves it out. Then the layer times each check itself, with its own clock. It is the only thing the skills carry that runs, and they never run it from their own folder.
 
 <!-- template: gdd-prepare/assets/check.sh -->
 ```sh
@@ -152,8 +152,9 @@ A project may have a runner of its own, `gdd/check.sh`. It runs one check, times
 #   gdd-check {"check":"<check id>","seconds":<whole seconds>,"exit":<exit code>}
 #
 # The commands of the constitution go through it, and so do the ones of the blueprint's checks,
-# all but seal. It belongs to the project: the person approves it with the blueprint, and a
-# project that can't run it leaves it out, and then nothing says what a check took.
+# all but seal. It belongs to the project, copied as it is, which no one has to read: changing it
+# is changing the blueprint, and a project that can't run it leaves it out, and then nothing says
+# what a check took.
 # Exit code: the command's own, or 2 when it is called wrong.
 if [ "$#" -lt 3 ] || [ "$2" != "--" ]; then
   echo "usage: sh gdd/check.sh <check id> -- <command> [<argument>...]" >&2
@@ -171,7 +172,7 @@ exit "$code"
 
 ## The counter
 
-A project may also have `gdd/limits.sh`, which counts from a change's log what the blueprint's `limits` cap for the change's color: its rounds, how many times its checks and its review sent it back, its minutes without the waits for a person, how many times the checks that run before the review ran, and its tokens. It also says when the checks of one run of the gates took longer than their tier's seconds, which stops nothing and goes to the backlog for hardening. The layer counts exactly the same before each round and each run of the gates, and is tested against it on every sample log; the counter stays as the project's own reading of its limits, and the change stops when it exits 1. An older counter counts a merge of corrected tests as a build round. A counter copied before 0.12 also counts as rounds the checks sealed again for a build: where the two differ, the layer's count is the one that holds, and the project takes the new counter with the person's approval, like any change to it. A cap that runs out stops the next round, never the judging of a build already finished: while the last build waits for its gates, its review or to ship, the caps on rounds, on the times sent back, on minutes and on tokens stay out of `stop`, and it says what to run next. Like the runner, it is the project's file: the person approves it with the blueprint, it lives under `gdd/`, and raising a cap is changing the blueprint. A project without it has the layer's count, `gdd limits <id>`.
+A project may also have `gdd/limits.sh`, which counts from a change's log what the blueprint's `limits` cap for the change's color: its rounds, how many times its checks and its review sent it back, its minutes without the waits for a person, how many times the checks that run before the review ran, and its tokens. It also says when the checks of one run of the gates took longer than their tier's seconds, which stops nothing and goes to the backlog for hardening. The layer counts exactly the same before each round and each run of the gates, and is tested against it on every sample log; the counter stays as the project's own reading of its limits, and the change stops when it exits 1. An older counter counts a merge of corrected tests as a build round. A counter copied before 0.12 also counts as rounds the checks sealed again for a build: where the two differ, the layer's count is the one that holds, and the project takes the new counter with the person's approval, like any change to it. A cap that runs out stops the next round, never the judging of a build already finished: while the last build waits for its gates, its review or to ship, the caps on rounds, on the times sent back, on minutes and on tokens stay out of `stop`, and it says what to run next. Like the runner, it is the project's file, copied from its template, which the person reads only where it differs: it lives under `gdd/`, and changing it or raising a cap is changing the blueprint. A project without it has the layer's count, `gdd limits <id>`.
 
 <!-- template: gdd-prepare/assets/limits.sh -->
 ```sh
@@ -205,8 +206,8 @@ A project may also have `gdd/limits.sh`, which counts from a change's log what t
 # A waiver of a limit that names it in "limit", by its key, and its new value in "to" sets that cap
 # for this change only, the last waiver of each cap winning, and the line of that cap says so.
 #
-# It belongs to the project, like gdd/check.sh: the person approves it with the blueprint, and
-# raising a cap is changing the blueprint. It reads two files and writes nothing.
+# It belongs to the project, like gdd/check.sh, copied as it is, which no one has to read: changing
+# it or raising a cap is changing the blueprint. It reads two files and writes nothing.
 # Exit code: 0 when stop is empty, 1 when it isn't, 2 when it is called wrong or a file is missing.
 if [ "$#" -ne 1 ]; then
   echo "usage: sh gdd/limits.sh <id>" >&2
