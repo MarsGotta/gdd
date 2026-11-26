@@ -123,7 +123,7 @@ context:
 
 # Blueprint
 
-<Two or three sentences: what the project is, and what in it is delicate.>
+<Two or three sentences: what the project is, and what in it is delicate. The body is for the person, with these sections and no others: how the models were tried and the probe stay in the log, the trial on past or planned changes goes in the approval message, and either gets a sentence here only where it changes what they decide, such as what protects nothing yet.>
 
 ```mermaid
 flowchart LR
