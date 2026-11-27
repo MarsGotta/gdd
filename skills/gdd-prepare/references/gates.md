@@ -55,7 +55,7 @@ Check every flag in the scanner's own help before you write it. Then try the com
 
 ## What isn't in the minimum, and why
 
-- **A check of planted faults,** mutation testing in software. It shows whether the tests catch planted bugs, and it costs minutes on every run. In software it comes with the first yellow change that has cases, as a check that only reports, whose survivors the reviewer reads, as `../gdd-recipes/software.md` says, because tests written by agents prove weak too often to wait for one to slip through. In other areas it comes when the tests proved weak: a reviewer found one that passed without its behavior, which `gdd metrics` counts by color as changes sent back to whoever wrote their checks, or a failure got past tests that ran its lines.
+- **A check of planted faults,** mutation testing in software. It shows whether the tests catch planted bugs, and it costs minutes on every run. In software it is in the checks of yellow and red from Prepare and judges from the first yellow change that has cases, as a check that only reports, whose survivors the reviewer reads, as `../gdd-recipes/software.md` says, because tests written by agents prove weak too often to wait for one to slip through. In other areas it comes when the tests proved weak: a reviewer found one that passed without its behavior, which `gdd metrics` counts by color as changes sent back to whoever wrote their checks, or a failure got past tests that ran its lines.
 - **A threshold of coverage.** How many lines ran says nothing about what was checked, and a change pays to reach the number. The tests of each change already follow its scenarios.
 - **Tests that drive a browser on every round.** They earn their place once the rest pass, before the review.
 
