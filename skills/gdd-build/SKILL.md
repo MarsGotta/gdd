@@ -4,7 +4,7 @@ description: Builds one change through its gates in a Gate-Driven Development (G
 license: MIT
 user-invocable: false
 metadata:
-  version: "0.21.6"
+  version: "0.22.0"
   contract: gdd/1
 ---
 
@@ -22,7 +22,7 @@ Gates decide when you're done. Never orchestrate, write checks, approve or launc
 End with three lines (work, each gate's evidence, anything unchecked), then one filled block. Write `result: done` when finished, `result: stopped` after `CANNOT:`. Give each product choice still in the change one `decision:` line.
 
 ```gdd-report
-skill: gdd-build 0.21.6
+skill: gdd-build 0.22.0
 result: <done or stopped>
 caught: <what it caught that others missed, or none>
 decision: <a product choice the brief or request left open, or none. Include numbers, order, limits, defaults and what an outside service can or cannot do>
@@ -31,7 +31,7 @@ decision: <a product choice the brief or request left open, or none. Include num
 Example
 
 ```gdd-report
-skill: gdd-build 0.21.6
+skill: gdd-build 0.22.0
 result: done
 caught: none
 decision: New sketches start with a 5 mm grid.
